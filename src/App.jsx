@@ -4,7 +4,7 @@ import { getAuth, signInWithPopup, GoogleAuthProvider, signOut, onAuthStateChang
 import { getFirestore, collection, query, onSnapshot, addDoc, doc, runTransaction, where, deleteDoc, getDoc, updateDoc, setDoc } from 'firebase/firestore';
 
 // ------------------------------------------------------------------
-// إعدادات Firebase الخاصة بك (تمت إضافتها بنجاح ✅)
+// إعدادات Firebase
 // ------------------------------------------------------------------
 const firebaseConfig = {
   apiKey: "AIzaSyDMF65H0Sa5B_CC1h-pRGxhVHEjPaHmRRc",
@@ -13,627 +13,587 @@ const firebaseConfig = {
   storageBucket: "financial-manager-2d1c3.firebasestorage.app",
   messagingSenderId: "730372364290",
   appId: "1:730372364290:web:014e9fd1566f178d926f1b"
-  // measurementId تم تجاهله لأنه غير مستخدم في الكود الحالي
 };
 
-// تهيئة التطبيق
 let app, db, auth;
 try {
     app = initializeApp(firebaseConfig);
     db = getFirestore(app);
     auth = getAuth(app);
 } catch (error) {
-    console.error("فشل تهيئة Firebase:", error);
+    console.error("Error initializing Firebase:", error);
 }
 
 // ------------------------------------------------------------------
-// بداية كود التطبيق
+// Helpers
 // ------------------------------------------------------------------
-
 const mapSnapshotToData = (snapshot) => {
     const data = [];
-    snapshot.forEach((doc) => {
-        data.push({ id: doc.id, ...doc.data() });
-    });
-    if (data.length > 0 && data[0].date) {
-        data.sort((a, b) => new Date(b.date) - new Date(a.date));
-    }
+    snapshot.forEach((doc) => { data.push({ id: doc.id, ...doc.data() }); });
+    if (data.length > 0 && data[0].date) { data.sort((a, b) => new Date(b.date) - new Date(a.date)); }
     return data;
 };
 
 const formatCurrency = (amount) => {
-    return new Intl.NumberFormat('ar-EG', {
-        style: 'currency',
-        currency: 'EGP',
-        minimumFractionDigits: 2
-    }).format(amount || 0);
+    return new Intl.NumberFormat('ar-EG', { style: 'currency', currency: 'EGP', minimumFractionDigits: 0 }).format(amount || 0);
 };
 
-// --- Custom Components ---
-
-const NotificationToast = ({ notification, onClose }) => {
-    if (!notification) return null;
-    useEffect(() => { const t = setTimeout(onClose, 3000); return () => clearTimeout(t); }, [notification, onClose]);
-    return (
-        <div className={`fixed top-6 left-1/2 transform -translate-x-1/2 z-50 w-11/12 max-w-md p-4 rounded-xl shadow-2xl flex items-center justify-between transition-all ${notification.type === 'error' ? 'bg-red-600' : 'bg-green-600'} text-white`} dir="rtl">
-            <span className="font-bold text-sm">{notification.message}</span>
-            <button onClick={onClose} className="text-white font-bold px-2">&times;</button>
-        </div>
-    );
+const formatDate = (dateString) => {
+    if (!dateString) return '';
+    return new Date(dateString).toLocaleDateString('ar-EG', { day: 'numeric', month: 'short', year: '2-digit' });
 };
 
-const MobileButton = ({ children, onClick, color = 'bg-indigo-600', type = 'button', disabled = false, small = false }) => (
-    <button type={type} onClick={onClick} disabled={disabled} className={`w-full text-white font-bold py-2 px-4 rounded-xl shadow-md ${color} disabled:opacity-50 ${small ? 'text-sm py-1' : ''}`}>
+// ------------------------------------------------------------------
+// Components
+// ------------------------------------------------------------------
+
+const MobileButton = ({ children, onClick, color = 'bg-blue-600', outline = false, full = true, disabled = false, small = false }) => (
+    <button 
+        onClick={onClick} 
+        disabled={disabled}
+        className={`${full ? 'w-full' : ''} ${small ? 'py-1 px-3 text-xs' : 'py-3 px-4 text-sm'} rounded-xl font-bold shadow-sm transition-all active:scale-95 
+        ${outline 
+            ? `border-2 border-${color.replace('bg-', '')} text-${color.replace('bg-', '')} bg-transparent` 
+            : `${color} text-white`
+        } ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
+    >
         {children}
     </button>
 );
 
-const SummaryCard = ({ title, value, color = 'text-gray-900', bgColor = 'bg-white', darkMode }) => (
-    <div className={`p-4 rounded-xl shadow-lg border-b-4 border-indigo-500 ${darkMode ? 'bg-gray-800 text-white' : bgColor}`}>
-        <p className={`text-sm font-medium ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>{title}</p>
-        <p className={`mt-1 text-2xl font-bold ${darkMode ? 'text-indigo-300' : color}`}>{formatCurrency(value)}</p>
-    </div>
-);
+const InfoCard = ({ title, value, subValue, icon, type = 'neutral', onClick, darkMode }) => {
+    // Dark mode color adjustments
+    const bg = darkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-100';
+    
+    const colors = {
+        neutral: darkMode ? 'text-gray-200' : 'text-gray-800',
+        success: darkMode ? 'text-green-400' : 'text-green-700',
+        danger: darkMode ? 'text-red-400' : 'text-red-700',
+        info: darkMode ? 'text-blue-400' : 'text-blue-700',
+        warning: darkMode ? 'text-orange-400' : 'text-orange-700'
+    };
 
-const SearchBar = ({ value, onChange, placeholder, darkMode }) => (
-    <div className="relative w-full mb-4">
-        <input
-            type="text"
-            value={value}
-            onChange={(e) => onChange(e.target.value)}
-            placeholder={placeholder}
-            className={`w-full p-2 pr-10 rounded-xl border ${darkMode ? 'bg-gray-800 border-gray-600 text-white placeholder-gray-500' : 'bg-white border-gray-300 text-gray-900'}`}
-        />
-        <div className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none">
-            <svg className={`w-5 h-5 ${darkMode ? 'text-gray-500' : 'text-gray-400'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
-        </div>
-    </div>
-);
-
-const InstallGuide = ({ show, onClose, darkMode }) => {
-    if (!show) return null;
     return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 p-4" dir="rtl">
-            <div className={`p-6 rounded-xl shadow-2xl max-w-sm w-full ${darkMode ? 'bg-gray-800 text-white' : 'bg-white text-gray-900'}`}>
-                <h3 className="text-lg font-bold mb-4 text-indigo-500">كيفية التثبيت على أندرويد</h3>
-                <ol className="list-decimal list-inside space-y-3 text-sm mb-6">
-                    <li>اضغط على زر القائمة في متصفح كروم (الثلاث نقاط ⋮ في الأعلى).</li>
-                    <li>اختر <strong>"إضافة إلى الشاشة الرئيسية"</strong> أو <strong>"Install App"</strong>.</li>
-                    <li>اضغط "إضافة" للتأكيد.</li>
-                    <li>سيظهر أيقونة التطبيق على شاشة هاتفك وتعمل كتطبيق منفصل!</li>
-                </ol>
-                <MobileButton onClick={onClose}>حسناً، فهمت</MobileButton>
+        <div onClick={onClick} className={`p-4 rounded-2xl border shadow-sm flex items-center justify-between ${bg} ${onClick ? 'active:opacity-80 cursor-pointer' : ''}`}>
+            <div>
+                <p className={`text-xs mb-1 ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>{title}</p>
+                <p className={`text-xl font-bold ${colors[type]}`}>{value}</p>
+                {subValue && <p className="text-xs text-gray-400 mt-1">{subValue}</p>}
+            </div>
+            {icon && <div className={`p-3 rounded-full shadow-sm text-2xl ${darkMode ? 'bg-gray-700 text-white' : 'bg-white'}`}>{icon}</div>}
+        </div>
+    );
+};
+
+// ------------------------------------------------------------------
+// Screens
+// ------------------------------------------------------------------
+
+const LoginScreen = () => {
+    const handleLogin = async () => {
+        try { await signInWithPopup(auth, new GoogleAuthProvider()); } catch (e) { alert("فشل الدخول: " + e.message); }
+    };
+    return (
+        <div className="flex flex-col items-center justify-center min-h-screen bg-gray-50 p-6 text-center relative" dir="rtl">
+            <div className="w-24 h-24 bg-blue-600 rounded-3xl flex items-center justify-center shadow-xl mb-6 rotate-3">
+                <span className="text-5xl">💰</span>
+            </div>
+            <h1 className="text-3xl font-extrabold text-gray-900 mb-1">مديرك المالي</h1>
+            <div className="bg-blue-50 text-blue-700 px-4 py-1 rounded-full text-xs font-bold border border-blue-100 mb-4 shadow-sm">
+                مخصص للأستاذ/ خالد إسماعيل
+            </div>
+            <p className="text-gray-500 mb-8 text-lg">نظام محاسبي ذكي، بسيط، وفي جيبك.</p>
+            <div className="w-full max-w-xs">
+                <MobileButton onClick={handleLogin}>تسجيل الدخول بواسطة جوجل</MobileButton>
+            </div>
+            <div className="absolute bottom-6 text-center opacity-60">
+                <p className="text-[10px] text-gray-400 uppercase tracking-wider mb-1">Designed & Developed By</p>
+                <div className="flex flex-col items-center text-xs font-bold text-gray-600" dir="ltr">
+                    <span>acc-aymanalaa</span>
+                    <span className="font-mono">01272725354</span>
+                </div>
             </div>
         </div>
     );
 };
 
-const MobileContainer = ({ children, darkMode }) => (
-    <div className={`min-h-screen flex flex-col items-center p-0 font-sans text-right transition-colors duration-300 ${darkMode ? 'bg-gray-900 text-white' : 'bg-gray-100 text-gray-900'}`} dir="rtl">
-        <div className="w-full max-w-[480px] min-h-screen flex flex-col shadow-2xl bg-inherit relative">
-            {children}
-        </div>
-    </div>
-);
-
-// --- Login Screen ---
-const LoginScreen = ({ setUserId }) => {
-    const [loading, setLoading] = useState(false);
-    const handleGoogleSignIn = async () => {
-        if (!auth) return;
-        setLoading(true);
-        try { await signInWithPopup(auth, new GoogleAuthProvider()); } catch (error) { console.error(error); } finally { setLoading(false); }
-    };
-    return (
-        <div className="min-h-screen w-full flex flex-col items-center justify-center bg-gradient-to-b from-indigo-900 to-gray-900 text-white p-4 text-center" dir="rtl">
-             <div className="w-24 h-24 bg-indigo-600 rounded-full flex items-center justify-center shadow-2xl mb-6 animate-bounce">
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-12 w-12 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-            </div>
-            <h2 className="text-4xl font-extrabold mb-2">مديرك المالي</h2>
-            <p className="text-indigo-300 mb-8 text-lg">نظامك المحاسبي الذكي</p>
-            <div className="w-full max-w-xs"><MobileButton onClick={handleGoogleSignIn} color="bg-white"><span className="text-gray-900 font-bold">{loading ? '...' : 'دخول بجوجل'}</span></MobileButton></div>
-        </div>
-    );
-};
-
-// --- Transactions ---
-const AddTransactionForm = ({ contacts, inventoryItems, notify, darkMode, userId }) => {
-    const [type, setType] = useState('Purchase'); 
-    const [category, setCategory] = useState('عام'); 
-    const [amount, setAmount] = useState('');
-    const [paidAmount, setPaidAmount] = useState('');
-    const [contactId, setContactId] = useState('');
-    const [description, setDescription] = useState('');
-    const [purchaseItems, setPurchaseItems] = useState([]); 
-    const [saleItems, setSaleItems] = useState([]); 
-    const [loading, setLoading] = useState(false);
-
-    const expenseCategories = ['إيجار', 'كهرباء/مياه', 'رواتب', 'نقل/شحن', 'صيانة', 'بضاعة تالفة', 'سحوبات شخصية', 'أخرى'];
-
-    const handleSubmit = async (e) => {
-        e.preventDefault();
-        const totalItemsAmount = (type === 'Purchase' ? purchaseItems : saleItems).reduce((sum, i) => sum + i.subtotal, 0);
-        const finalAmount = type === 'Expense' ? (parseFloat(amount) || 0) : totalItemsAmount;
-        const paid = type === 'Expense' ? finalAmount : (parseFloat(paidAmount) || 0);
-        
-        if (type !== 'Expense' && totalItemsAmount <= 0) { notify('يجب إضافة بنود.', 'error'); return; }
-        if (paid > finalAmount) { notify('المدفوع أكبر من الإجمالي!', 'error'); return; }
-
-        setLoading(true);
-        const itemsToSave = type === 'Purchase' ? purchaseItems : saleItems;
-        const credit = finalAmount - paid;
-
-        try {
-            await runTransaction(db, async (transaction) => {
-                const itemsList = [];
-                if (type !== 'Expense') {
-                    for (const item of itemsToSave) {
-                        let itemRef;
-                        if (item.isNew) {
-                            const newRef = doc(collection(db, 'inventory_items'));
-                            transaction.set(newRef, { name: item.name, unit: item.unit, quantity: item.quantity, lastPurchasePrice: item.price, totalPurchased: item.quantity, totalSold: 0, userId });
-                            item.itemId = newRef.id;
-                        } else {
-                            itemRef = doc(db, 'inventory_items', item.itemId);
-                            const iDoc = await transaction.get(itemRef);
-                            if (!iDoc.exists()) throw "Item not found";
-                            const d = iDoc.data();
-                            transaction.update(itemRef, {
-                                quantity: type === 'Purchase' ? d.quantity + item.quantity : d.quantity - item.quantity,
-                                ...(type === 'Purchase' ? { lastPurchasePrice: item.price, totalPurchased: (d.totalPurchased || 0) + item.quantity } : { totalSold: (d.totalSold || 0) + item.quantity })
-                            });
-                        }
-                        itemsList.push({ ...item, isNew: false });
-                    }
-                }
-
-                const transactionRef = doc(collection(db, 'transactions'));
-                const contactName = contactId ? contacts.find(c => c.id === contactId)?.name : null;
-                
-                transaction.set(transactionRef, {
-                    userId, type, amount: finalAmount, paidAmount: paid, creditAmount: credit,
-                    contactId: contactId || null, contactName,
-                    date: new Date().toISOString(), 
-                    description: type === 'Expense' ? `${category} - ${description}` : description || type, 
-                    category: type === 'Expense' ? category : null,
-                    items: itemsList.length ? itemsList : null
-                });
-
-                if (contactId && credit !== 0) {
-                    const cRef = doc(db, 'contacts', contactId);
-                    const cDoc = await transaction.get(cRef);
-                    const bal = cDoc.data().balance || 0;
-                    transaction.update(cRef, { balance: bal + (type === 'Purchase' ? -credit : credit) });
-                }
-            });
-            notify('تم الحفظ بنجاح', 'success');
-            setAmount(''); setPaidAmount(''); setContactId(''); setDescription(''); setPurchaseItems([]); setSaleItems([]);
-        } catch (err) { console.error(err); notify('حدث خطأ أثناء الحفظ', 'error'); } finally { setLoading(false); }
-    };
+const SettingsScreen = ({ user, onLogout, darkMode, toggleDarkMode }) => {
+    const cardClass = darkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-100';
+    const textMain = darkMode ? 'text-white' : 'text-gray-800';
+    const textSub = darkMode ? 'text-gray-400' : 'text-gray-500';
 
     return (
-        <form onSubmit={handleSubmit} className={`space-y-4 p-4 border rounded-xl shadow-sm ${darkMode ? 'bg-gray-800 border-gray-700' : 'bg-gray-50 border-gray-200'}`}>
-            <div className='flex space-x-2 rtl:space-x-reverse'>
-                {['Sale', 'Purchase', 'Expense'].map(t => (
-                    <button key={t} type="button" onClick={() => { setType(t); setPaidAmount(''); setContactId(''); }} 
-                        className={`flex-1 py-2 rounded-lg font-semibold transition ${type === t ? 'bg-indigo-600 text-white' : darkMode ? 'bg-gray-700 text-gray-300' : 'bg-white text-gray-700 border'}`}>
-                        {t === 'Sale' ? 'بيع' : t === 'Purchase' ? 'شراء' : 'مصروف'}
-                    </button>
-                ))}
+        <div className="space-y-5 animate-in fade-in slide-in-from-bottom-4 duration-500">
+            <div className={`${cardClass} p-6 rounded-3xl shadow-sm border flex flex-col items-center text-center relative overflow-hidden`}>
+                <div className="absolute top-0 w-full h-20 bg-gradient-to-r from-blue-500 to-blue-600"></div>
+                <div className={`w-20 h-20 p-1 rounded-full shadow-lg z-10 mt-4 mb-3 ${darkMode ? 'bg-gray-800' : 'bg-white'}`}>
+                    <img src={user.photoURL || "https://via.placeholder.com/150"} alt="Profile" className="w-full h-full rounded-full object-cover" />
+                </div>
+                <h2 className={`font-bold text-lg ${textMain}`}>{user.displayName || 'مستخدم'}</h2>
+                <p className={`text-xs ${textSub} mb-4`}>{user.email}</p>
+                <MobileButton onClick={onLogout} color="bg-red-50 text-red-600" outline full={false} small>تسجيل الخروج 🚪</MobileButton>
             </div>
 
-            {type === 'Expense' ? (
-                <>
-                    <select value={category} onChange={(e) => setCategory(e.target.value)} className="w-full p-2 rounded-lg border">
-                        {expenseCategories.map(c => <option key={c} value={c}>{c}</option>)}
-                    </select>
-                    <input type="number" value={amount} onChange={(e) => setAmount(e.target.value)} required placeholder="قيمة المصروف" className="w-full p-2 rounded-lg border text-lg text-right"/>
-                </>
-            ) : (
-                <>
-                    <select value={contactId} onChange={(e) => setContactId(e.target.value)} required className="w-full p-2 rounded-lg border">
-                        <option value="">اختر {type === 'Sale' ? 'العميل' : 'المورد'}</option>
-                        {contacts.filter(c => (type === 'Sale' ? c.type === 'Customer' : c.type === 'Supplier')).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                    </select>
-                    <LineItemInput inventoryItems={inventoryItems} items={type === 'Purchase' ? purchaseItems : saleItems} setItems={type === 'Purchase' ? setPurchaseItems : setSaleItems} totalAmount={(type === 'Purchase' ? purchaseItems : saleItems).reduce((s,i)=>s+i.subtotal,0)} transactionType={type} notify={notify} darkMode={darkMode} />
-                    <div className={`p-3 rounded-lg border space-y-2 ${darkMode ? 'bg-gray-900 border-gray-700' : 'bg-white'}`}>
-                        <input type="number" value={paidAmount} onChange={(e) => setPaidAmount(e.target.value)} required placeholder="المدفوع كاش" className="w-full p-2 rounded-lg border text-lg text-right"/>
+            <div className={`${cardClass} rounded-2xl border shadow-sm overflow-hidden`}>
+                <div onClick={toggleDarkMode} className={`p-4 border-b flex justify-between items-center cursor-pointer ${darkMode ? 'border-gray-700' : 'border-gray-50'}`}>
+                    <div className="flex items-center gap-3">
+                        <span className={`p-2 rounded-lg ${darkMode ? 'bg-gray-700 text-yellow-400' : 'bg-gray-100 text-gray-600'}`}>
+                            {darkMode ? '☀️' : '🌙'}
+                        </span>
+                        <span className={`text-sm font-bold ${textMain}`}>الوضع {darkMode ? 'النهاري' : 'الليلي'}</span>
                     </div>
-                </>
-            )}
+                    <div className={`w-12 h-6 rounded-full relative transition-colors duration-300 ${darkMode ? 'bg-blue-600' : 'bg-gray-300'}`}>
+                        <div className={`w-4 h-4 bg-white rounded-full absolute top-1 transition-all duration-300 ${darkMode ? 'right-7' : 'right-1'}`}></div>
+                    </div>
+                </div>
+            </div>
 
-            <input type="text" value={description} onChange={(e) => setDescription(e.target.value)} placeholder="ملاحظات إضافية" className="w-full p-2 rounded-lg border"/>
-            <MobileButton type="submit" disabled={loading}>{loading ? 'جارٍ الحفظ...' : 'تسجيل العملية'}</MobileButton>
-        </form>
+            <div className={`${cardClass} p-5 rounded-2xl border shadow-sm space-y-4`}>
+                <h3 className={`font-bold text-sm border-b pb-2 ${textMain} ${darkMode ? 'border-gray-700' : 'border-gray-100'}`}>حول التطبيق</h3>
+                <div className="flex justify-between items-center text-sm">
+                    <span className={textSub}>الإصدار</span>
+                    <span className={`font-mono px-2 py-0.5 rounded text-xs ${darkMode ? 'bg-gray-700 text-gray-300' : 'bg-gray-100 text-gray-700'}`}>v2.5.0</span>
+                </div>
+                <div className="flex justify-between items-center text-sm">
+                    <span className={textSub}>ترخيص لـ</span>
+                    <span className="font-bold text-blue-600 text-xs">أ/ خالد إسماعيل</span>
+                </div>
+                <div className={`p-3 rounded-xl mt-2 ${darkMode ? 'bg-blue-900/20' : 'bg-blue-50'}`}>
+                    <p className="text-xs text-blue-600 font-bold mb-1">الدعم الفني والتطوير</p>
+                    <div className="flex justify-between items-center text-xs text-blue-500" dir="ltr">
+                        <span>acc-aymanalaa</span>
+                        <span className="font-mono">01272725354</span>
+                    </div>
+                </div>
+            </div>
+        </div>
     );
 };
 
-const LineItemInput = ({ inventoryItems, items, setItems, totalAmount, transactionType, notify, darkMode }) => {
-    const [selectedItemId, setSelectedItemId] = useState('');
-    const [qty, setQty] = useState('');
-    const [price, setPrice] = useState('');
-    const [newItemName, setNewItemName] = useState('');
-    const [newItemUnit, setNewItemUnit] = useState('قطعة');
-    const [isNew, setIsNew] = useState(false);
-
-    const isSale = transactionType === 'Sale';
-
-    const addItem = () => {
-        if (!qty || !price || (isNew && !newItemName) || (!isNew && !selectedItemId)) return notify('بيانات ناقصة', 'error');
-        
-        const itemData = isNew ? { name: newItemName, unit: newItemUnit, quantity: Infinity, lastPurchasePrice: 0 } : inventoryItems.find(i => i.id === selectedItemId);
-        const q = parseFloat(qty);
-        const p = parseFloat(price);
-
-        if (isSale && !isNew && itemData.quantity < q) return notify(`الكمية المتاحة ${itemData.quantity} فقط`, 'error');
-
-        setItems([...items, { 
-            itemId: isNew ? `NEW_${Date.now()}` : selectedItemId, 
-            name: itemData.name, unit: itemData.unit, quantity: q, price: p, subtotal: q * p, isNew: isNew && transactionType === 'Purchase' 
-        }]);
-        setQty(''); setPrice(''); setSelectedItemId(''); setNewItemName(''); setIsNew(false);
-    };
+const ContactDetailsScreen = ({ contact, transactions, onBack, onAddTransaction, darkMode }) => {
+    const contactTransactions = useMemo(() => transactions.filter(t => t.contactId === contact.id), [transactions, contact]);
+    const totalPurchased = contactTransactions.filter(t => t.type === 'Sale' || t.type === 'Purchase').reduce((acc, t) => acc + t.amount, 0);
+    
+    const bg = darkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-100';
+    const text = darkMode ? 'text-gray-200' : 'text-gray-800';
 
     return (
-        <div className={`p-3 rounded-lg border ${darkMode ? 'bg-gray-900 border-gray-700' : 'bg-gray-50 border-gray-200'}`}>
-            {!isNew ? (
-                <div className="flex gap-2 mb-2">
-                    <select value={selectedItemId} onChange={(e) => {
-                        setSelectedItemId(e.target.value);
-                        if (isSale) {
-                            const i = inventoryItems.find(x => x.id === e.target.value);
-                            if (i) setPrice((i.lastPurchasePrice * 1.2).toFixed(2));
-                        }
-                    }} className="flex-grow p-2 rounded border text-sm">
-                        <option value="">اختر صنف</option>
-                        {inventoryItems.map(i => <option key={i.id} value={i.id}>{i.name} ({i.quantity})</option>)}
-                    </select>
-                    {transactionType === 'Purchase' && <button type="button" onClick={() => setIsNew(true)} className="bg-green-600 text-white px-3 rounded text-lg">+</button>}
+        <div className="space-y-4 animate-in slide-in-from-bottom-4 duration-300">
+            <div className={`flex items-center gap-3 pb-2 border-b ${darkMode ? 'border-gray-700' : 'border-gray-100'}`}>
+                <button onClick={onBack} className={`p-2 rounded-full text-xl ${darkMode ? 'bg-gray-700 text-white' : 'bg-gray-100 hover:bg-gray-200'}`}>➜</button>
+                <div>
+                    <h2 className={`text-xl font-bold ${text}`}>{contact.name}</h2>
+                    <span className={`text-xs px-2 py-0.5 rounded-full ${contact.type === 'Customer' ? 'bg-green-100 text-green-700' : 'bg-orange-100 text-orange-700'}`}>
+                        {contact.type === 'Customer' ? 'عميل' : 'مورد'}
+                    </span>
                 </div>
-            ) : (
-                <div className="flex gap-2 mb-2">
-                    <input value={newItemName} onChange={e => setNewItemName(e.target.value)} placeholder="اسم الصنف" className="w-2/3 p-2 rounded border text-sm"/>
-                    <input value={newItemUnit} onChange={e => setNewItemUnit(e.target.value)} placeholder="وحدة" className="w-1/3 p-2 rounded border text-sm"/>
-                    <button type="button" onClick={() => setIsNew(false)} className="bg-red-500 text-white px-3 rounded">x</button>
-                </div>
-            )}
-            <div className="flex gap-2 mb-2">
-                <input type="number" value={qty} onChange={e => setQty(e.target.value)} placeholder="الكمية" className="w-1/2 p-2 rounded border text-sm"/>
-                <input type="number" value={price} onChange={e => setPrice(e.target.value)} placeholder="السعر" className="w-1/2 p-2 rounded border text-sm"/>
-                <button type="button" onClick={addItem} className="bg-indigo-600 text-white px-4 rounded font-bold">أضف</button>
             </div>
-            {items.length > 0 && (
-                <div className="bg-white/10 rounded p-2 max-h-32 overflow-y-auto">
-                    {items.map((i, idx) => (
-                        <div key={idx} className="flex justify-between text-sm border-b border-gray-500/30 py-1">
-                            <span>{i.name} ({i.quantity}×{i.price})</span>
-                            <div className="flex gap-2 items-center">
-                                <span className="font-bold">{i.subtotal}</span>
-                                <button onClick={() => setItems(items.filter((_, x) => x !== idx))} className="text-red-500 font-bold">x</button>
+
+            <div className={`p-6 rounded-3xl text-white shadow-lg ${contact.balance > 0 ? 'bg-gradient-to-br from-green-500 to-green-700' : contact.balance < 0 ? 'bg-gradient-to-br from-red-500 to-red-700' : 'bg-gray-500'}`}>
+                <p className="text-white/80 text-sm mb-1">الرصيد المستحق</p>
+                <div className="flex justify-between items-end">
+                    <h3 className="text-4xl font-bold">{formatCurrency(Math.abs(contact.balance))}</h3>
+                    <span className="bg-white/20 px-3 py-1 rounded-lg text-sm backdrop-blur-sm">
+                        {contact.balance > 0 ? 'له' : contact.balance < 0 ? 'عليه' : 'خالص'}
+                    </span>
+                </div>
+                <p className="text-xs mt-4 text-white/70 border-t border-white/10 pt-2">
+                    {contact.balance > 0 ? 'أنت مدين له (دائن)' : contact.balance < 0 ? 'هو مدين لك (مدين)' : 'لا توجد مديونية'}
+                </p>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+                <div className={`${bg} p-3 rounded-2xl border shadow-sm text-center`}>
+                    <p className={`text-xs ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>حجم التعاملات</p>
+                    <p className={`font-bold text-lg ${text}`}>{formatCurrency(totalPurchased)}</p>
+                </div>
+                <div className={`${bg} p-3 rounded-2xl border shadow-sm text-center`}>
+                    <p className={`text-xs ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>عدد العمليات</p>
+                    <p className={`font-bold text-lg ${text}`}>{contactTransactions.length}</p>
+                </div>
+            </div>
+
+            <div>
+                <h3 className={`font-bold mb-3 ${darkMode ? 'text-gray-300' : 'text-gray-700'}`}>كشف الحساب</h3>
+                {contactTransactions.length === 0 ? (
+                    <div className={`text-center py-8 rounded-2xl border border-dashed ${darkMode ? 'bg-gray-800 border-gray-700 text-gray-500' : 'bg-white border-gray-200 text-gray-400'}`}>لا توجد حركات.</div>
+                ) : (
+                    <div className="space-y-3">
+                        {contactTransactions.map(t => (
+                            <div key={t.id} className={`${bg} p-3 rounded-xl border shadow-sm flex justify-between items-center`}>
+                                <div>
+                                    <div className="flex items-center gap-2">
+                                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md ${t.type === 'Sale' ? 'bg-green-100 text-green-700' : 'bg-orange-100 text-orange-700'}`}>
+                                            {t.type === 'Sale' ? 'بيع' : 'شراء'}
+                                        </span>
+                                        <span className="text-xs text-gray-400">{formatDate(t.date)}</span>
+                                    </div>
+                                    <p className={`text-sm mt-1 font-medium ${text}`}>{t.description || 'بدون وصف'}</p>
+                                </div>
+                                <div className="text-left">
+                                    <p className={`font-bold ${text}`}>{formatCurrency(t.amount)}</p>
+                                    {t.creditAmount > 0 && <p className="text-[10px] text-red-500 font-bold">متبقي: {formatCurrency(t.creditAmount)}</p>}
+                                </div>
                             </div>
-                        </div>
-                    ))}
-                </div>
-            )}
-            <div className="mt-2 pt-2 border-t border-gray-500/30 flex justify-between font-bold">
-                <span>الإجمالي:</span>
-                <span>{formatCurrency(totalAmount)}</span>
+                        ))}
+                    </div>
+                )}
             </div>
+            <div className="pt-4 pb-8"><MobileButton onClick={() => onAddTransaction(contact.id)}>+ تسجيل عملية جديدة</MobileButton></div>
         </div>
     );
 };
 
-const TransactionHistory = ({ transactions, contacts, notify, darkMode }) => {
-    const [search, setSearch] = useState('');
-    const [filter, setFilter] = useState('all');
+const ContactsManagerScreen = ({ contacts, userId, onSelectContact, darkMode }) => {
+    const [activeTab, setActiveTab] = useState('Customer');
+    const [showAddForm, setShowAddForm] = useState(false);
+    const [newName, setNewName] = useState('');
+    const [newPhone, setNewPhone] = useState('');
 
-    const handleDelete = async (t) => {
-        if (!window.confirm('هل أنت متأكد من حذف هذه العملية؟ سيتم عكس تأثيرها على المخزون والعملاء.')) return;
-        try {
-            await runTransaction(db, async (transaction) => {
-                // Reverse Inventory
-                if (t.items) {
-                    for (const item of t.items) {
-                        const itemRef = doc(db, 'inventory_items', item.itemId);
-                        const iDoc = await transaction.get(itemRef);
-                        if (iDoc.exists()) {
-                            const d = iDoc.data();
-                            transaction.update(itemRef, {
-                                quantity: t.type === 'Purchase' ? d.quantity - item.quantity : d.quantity + item.quantity,
-                                ...(t.type === 'Purchase' ? { totalPurchased: d.totalPurchased - item.quantity } : { totalSold: d.totalSold - item.quantity })
-                            });
-                        }
-                    }
-                }
-                // Reverse Contact Balance
-                if (t.contactId && t.creditAmount) {
-                    const cRef = doc(db, 'contacts', t.contactId);
-                    const cDoc = await transaction.get(cRef);
-                    if (cDoc.exists()) {
-                        const bal = cDoc.data().balance;
-                        const change = t.type === 'Purchase' ? t.creditAmount : -t.creditAmount;
-                        transaction.update(cRef, { balance: bal + change });
-                    }
-                }
-                transaction.delete(doc(db, 'transactions', t.id));
-            });
-            notify('تم الحذف وعكس العملية بنجاح', 'success');
-        } catch (e) { console.error(e); notify('فشل الحذف', 'error'); }
-    };
-
-    const filtered = transactions.filter(t => {
-        const matchesSearch = (t.contactName || '').includes(search) || (t.description || '').includes(search) || t.amount.toString().includes(search);
-        const tDate = new Date(t.date);
-        const now = new Date();
-        if (filter === 'today') return matchesSearch && tDate.setHours(0,0,0,0) === now.setHours(0,0,0,0);
-        if (filter === 'month') return matchesSearch && tDate.getMonth() === now.getMonth();
-        return matchesSearch;
-    });
-
-    return (
-        <div className="space-y-4">
-            <SearchBar value={search} onChange={setSearch} placeholder="ابحث في العمليات..." darkMode={darkMode} />
-            <div className="flex gap-2 overflow-x-auto hide-scrollbar pb-2">
-                {[{id:'all',l:'الكل'},{id:'today',l:'اليوم'},{id:'month',l:'هذا الشهر'}].map(f => (
-                    <button key={f.id} onClick={() => setFilter(f.id)} className={`px-4 py-1 rounded-full text-xs font-bold ${filter === f.id ? 'bg-indigo-600 text-white' : 'bg-gray-200 text-gray-700'}`}>{f.l}</button>
-                ))}
-            </div>
-            <ul className="space-y-3">
-                {filtered.map(t => (
-                    <li key={t.id} className={`p-3 rounded-xl border relative group ${darkMode ? 'bg-gray-800 border-gray-700' : 'bg-white'}`}>
-                        <button onClick={() => handleDelete(t)} className="absolute top-2 left-2 text-red-400 opacity-0 group-hover:opacity-100 transition-opacity">🗑️</button>
-                        <div className="flex justify-between mb-1">
-                            <span className={`font-bold text-sm ${t.type==='Sale'?'text-green-500':t.type==='Purchase'?'text-yellow-500':'text-red-500'}`}>
-                                {t.type === 'Sale' ? 'بيع' : t.type === 'Purchase' ? 'شراء' : t.description}
-                            </span>
-                            <span className="text-xs text-gray-500">{new Date(t.date).toLocaleDateString('ar-EG')}</span>
-                        </div>
-                        <p className="font-bold">{formatCurrency(t.amount)}</p>
-                        {t.contactName && <p className="text-xs text-gray-500">الطرف: {t.contactName}</p>}
-                    </li>
-                ))}
-            </ul>
-        </div>
-    );
-};
-
-const ContactsScreen = ({ contacts, userId, notify, darkMode }) => {
-    const [name, setName] = useState('');
-    const [search, setSearch] = useState('');
-    const [type, setType] = useState('Customer');
-    const [isAdding, setIsAdding] = useState(false);
+    const filteredContacts = contacts.filter(c => c.type === activeTab);
+    const bg = darkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-100';
+    const text = darkMode ? 'text-white' : 'text-gray-900';
 
     const handleAdd = async (e) => {
         e.preventDefault();
-        if (!name) return;
+        if (!newName.trim()) return;
         try {
-            await addDoc(collection(db, 'contacts'), { userId, name, type, balance: 0, createdAt: new Date().toISOString() });
-            notify('تمت الإضافة', 'success'); setIsAdding(false); setName('');
-        } catch (e) { notify('خطأ', 'error'); }
+            await addDoc(collection(db, 'contacts'), { userId, name: newName, phone: newPhone, type: activeTab, balance: 0, createdAt: new Date().toISOString() });
+            setNewName(''); setNewPhone(''); setShowAddForm(false);
+        } catch (error) { alert('خطأ: ' + error.message); }
     };
 
-    const filteredContacts = contacts.filter(c => c.name.includes(search));
-
     return (
         <div className="space-y-4">
-            <SearchBar value={search} onChange={setSearch} placeholder="ابحث عن عميل/مورد..." darkMode={darkMode} />
-            <MobileButton onClick={() => setIsAdding(!isAdding)}>{isAdding ? 'إلغاء' : 'إضافة عميل/مورد'}</MobileButton>
-            {isAdding && (
-                <form onSubmit={handleAdd} className={`p-4 rounded-xl border space-y-3 ${darkMode ? 'bg-gray-800 border-gray-700' : 'bg-white'}`}>
-                    <div className="flex gap-2">
-                        <button type="button" onClick={() => setType('Customer')} className={`flex-1 py-1 rounded ${type === 'Customer' ? 'bg-indigo-600 text-white' : 'bg-gray-600 text-gray-300'}`}>عميل</button>
-                        <button type="button" onClick={() => setType('Supplier')} className={`flex-1 py-1 rounded ${type === 'Supplier' ? 'bg-indigo-600 text-white' : 'bg-gray-600 text-gray-300'}`}>مورد</button>
-                    </div>
-                    <input value={name} onChange={(e) => setName(e.target.value)} placeholder="الاسم" className="w-full p-2 rounded border"/>
-                    <MobileButton type="submit">حفظ</MobileButton>
+            <div className={`flex p-1 rounded-2xl ${darkMode ? 'bg-gray-700' : 'bg-gray-100'}`}>
+                <button onClick={() => setActiveTab('Customer')} className={`flex-1 py-2 rounded-xl text-sm font-bold transition-all ${activeTab === 'Customer' ? 'bg-white shadow text-blue-600' : 'text-gray-500'}`}>العملاء</button>
+                <button onClick={() => setActiveTab('Supplier')} className={`flex-1 py-2 rounded-xl text-sm font-bold transition-all ${activeTab === 'Supplier' ? 'bg-white shadow text-orange-600' : 'text-gray-500'}`}>الموردين</button>
+            </div>
+
+            {!showAddForm ? (
+                <button 
+                    onClick={() => setShowAddForm(true)} 
+                    className={`w-full py-4 border-2 border-dashed rounded-2xl font-bold transition-all flex items-center justify-center gap-2 ${darkMode ? 'border-gray-600 text-gray-400 hover:bg-gray-800' : 'border-gray-300 text-gray-500 hover:bg-blue-50 hover:text-blue-600'}`}
+                >
+                    <span className="text-2xl">+</span> 
+                    <span>إضافة {activeTab === 'Customer' ? 'عميل' : 'مورد'} جديد</span>
+                </button>
+            ) : (
+                <form onSubmit={handleAdd} className={`${bg} p-5 rounded-2xl border shadow-md space-y-4 animate-in fade-in`}>
+                    <h3 className={`font-bold border-b pb-2 ${darkMode ? 'text-white border-gray-700' : 'text-gray-700 border-gray-200'}`}>إضافة {activeTab === 'Customer' ? 'عميل' : 'مورد'} جديد</h3>
+                    <div><label className="text-xs text-gray-500">الاسم</label><input value={newName} onChange={e => setNewName(e.target.value)} className={`w-full p-3 border rounded-xl outline-none ${darkMode ? 'bg-gray-700 border-gray-600 text-white' : 'bg-gray-50 border-gray-200'}`} autoFocus /></div>
+                    <div><label className="text-xs text-gray-500">رقم الهاتف (اختياري)</label><input value={newPhone} onChange={e => setNewPhone(e.target.value)} className={`w-full p-3 border rounded-xl outline-none ${darkMode ? 'bg-gray-700 border-gray-600 text-white' : 'bg-gray-50 border-gray-200'}`} type="tel" /></div>
+                    <div className="flex gap-3 pt-2"><MobileButton onClick={() => setShowAddForm(false)} color="bg-gray-500" full={false}>إلغاء</MobileButton><div className="flex-1"><MobileButton type="submit">حفظ</MobileButton></div></div>
                 </form>
             )}
-            <div className="space-y-2">
-                {filteredContacts.map(c => (
-                    <div key={c.id} className={`p-3 rounded-lg border flex justify-between items-center ${darkMode ? 'bg-gray-800 border-gray-700' : 'bg-white'}`}>
-                        <div>
-                            <p className="font-bold">{c.name}</p>
-                            <p className="text-xs text-gray-500">{c.type === 'Customer' ? 'عميل' : 'مورد'}</p>
+
+            <div className="space-y-2 pb-20">
+                {filteredContacts.map(contact => (
+                    <div key={contact.id} onClick={() => onSelectContact(contact)} className={`${bg} p-4 rounded-2xl border shadow-sm flex justify-between items-center cursor-pointer active:scale-[0.98]`}>
+                        <div className="flex items-center gap-3">
+                            <div className={`w-12 h-12 rounded-full flex items-center justify-center text-xl font-bold shadow-inner ${contact.type === 'Customer' ? 'bg-blue-50 text-blue-600' : 'bg-orange-50 text-orange-600'}`}>{contact.name.charAt(0)}</div>
+                            <div><p className={`font-bold text-lg ${text}`}>{contact.name}</p><p className="text-xs text-gray-400">{contact.phone || 'رقم غير مسجل'}</p></div>
                         </div>
-                        <div className={`text-left font-bold ${c.balance > 0 ? 'text-red-500' : c.balance < 0 ? 'text-green-500' : 'text-gray-500'}`}>
-                            {formatCurrency(Math.abs(c.balance))}
-                            <p className="text-[10px] font-normal">{c.balance > 0 ? (c.type==='Customer'?'(لي)':'(علي)') : c.balance < 0 ? (c.type==='Customer'?'(علي)':'(لي)') : '-'}</p>
+                        <div className="text-left">
+                            {contact.balance === 0 ? <span className="text-xs bg-gray-100 text-gray-400 px-3 py-1 rounded-full font-bold">خالص</span> : (
+                                <div className="flex flex-col items-end">
+                                    <p className={`font-bold text-lg ${contact.balance < 0 ? 'text-red-600' : 'text-green-600'}`}>{formatCurrency(Math.abs(contact.balance))}</p>
+                                    <p className={`text-[10px] px-1.5 rounded ${contact.balance < 0 ? 'bg-red-50 text-red-500' : 'bg-green-50 text-green-500'}`}>{contact.balance < 0 ? 'عليه' : 'له'}</p>
+                                </div>
+                            )}
                         </div>
                     </div>
                 ))}
+                {filteredContacts.length === 0 && !showAddForm && <div className="text-center py-12"><p className="text-4xl mb-2">📭</p><p className="text-gray-400">القائمة فارغة</p></div>}
             </div>
         </div>
     );
 };
 
-const InventoryManagement = ({ inventoryItems, transactions, darkMode }) => {
-    const [search, setSearch] = useState('');
-    const [filter, setFilter] = useState('all');
+const AddTransactionScreen = ({ contacts, inventoryItems, userId, preSelectedContactId, onClose, darkMode }) => {
+    const [type, setType] = useState('Sale');
+    const [contactId, setContactId] = useState(preSelectedContactId || '');
+    const [items, setItems] = useState([]);
+    const [paid, setPaid] = useState('');
+    const [amount, setAmount] = useState('');
+    const [description, setDescription] = useState('');
+    const [loading, setLoading] = useState(false);
+    const [selItemId, setSelItemId] = useState('');
+    const [qty, setQty] = useState('');
+    const [price, setPrice] = useState('');
+    const [isQuickAddContact, setIsQuickAddContact] = useState(false);
+    const [newContactName, setNewContactName] = useState('');
 
-    const itemsWithStats = useMemo(() => {
-        return inventoryItems.map(item => {
-            const itemSales = transactions.filter(t => t.type === 'Sale' && t.items).flatMap(t => t.items).filter(i => i.itemId === item.id);
-            const revenue = itemSales.reduce((sum, i) => sum + i.subtotal, 0);
-            const qtySold = itemSales.reduce((sum, i) => sum + i.quantity, 0);
-            const profit = revenue - (qtySold * (item.lastPurchasePrice || 0));
-            return { ...item, qtySold, profit };
-        });
-    }, [inventoryItems, transactions]);
+    const activeContacts = contacts.filter(c => (type === 'Sale' ? c.type === 'Customer' : c.type === 'Purchase' ? c.type === 'Supplier' : false));
+    const totalAmount = items.reduce((sum, i) => sum + i.subtotal, 0);
+    const bg = darkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200';
+    const inputBg = darkMode ? 'bg-gray-700 text-white border-gray-600' : 'bg-white text-gray-900 border-gray-200';
 
-    const displayed = itemsWithStats.filter(i => i.name.includes(search) && (filter === 'low' ? i.quantity <= 5 : filter === 'top' ? true : true));
-    if (filter === 'top') displayed.sort((a, b) => b.qtySold - a.qtySold);
+    const addItem = () => {
+        if (!selItemId || !qty || !price) return;
+        const itemDef = inventoryItems.find(i => i.id === selItemId);
+        setItems([...items, { id: selItemId, name: itemDef.name, qty: Number(qty), price: Number(price), subtotal: Number(qty) * Number(price) }]);
+        setSelItemId(''); setQty(''); setPrice('');
+    };
+
+    const handleQuickSaveContact = async () => {
+        if (!newContactName.trim()) return;
+        setLoading(true);
+        try {
+            const docRef = await addDoc(collection(db, 'contacts'), { userId, name: newContactName, type: type === 'Sale' ? 'Customer' : 'Supplier', balance: 0, createdAt: new Date().toISOString() });
+            setContactId(docRef.id); setIsQuickAddContact(false); setNewContactName('');
+        } catch (e) { alert('خطأ: ' + e.message); }
+        setLoading(false);
+    };
+
+    const saveTransaction = async () => {
+        if ((type === 'Sale' || type === 'Purchase') && items.length === 0) return alert('أضف أصناف');
+        if ((type === 'Expense' || type === 'Capital') && !amount) return alert('أدخل المبلغ');
+        setLoading(true);
+        
+        try {
+            await runTransaction(db, async (t) => {
+                const ref = doc(collection(db, 'transactions'));
+                let finalAmount = 0, credit = 0, paidAmount = 0;
+
+                if (type === 'Sale' || type === 'Purchase') {
+                    finalAmount = totalAmount; paidAmount = Number(paid) || 0; credit = finalAmount - paidAmount;
+                } else {
+                    finalAmount = Number(amount); paidAmount = finalAmount;
+                }
+                
+                t.set(ref, {
+                    userId, type, contactId: contactId || null, 
+                    contactName: contacts.find(c => c.id === contactId)?.name || null,
+                    amount: finalAmount, paidAmount, creditAmount: credit,
+                    date: new Date().toISOString(),
+                    description: description || type,
+                    items: (type === 'Sale' || type === 'Purchase') ? items.map(i => ({ itemId: i.id, name: i.name, quantity: i.qty, price: i.price })) : null
+                });
+
+                if (type === 'Sale' || type === 'Purchase') {
+                    for (const item of items) {
+                        const iRef = doc(db, 'inventory_items', item.id);
+                        const iDoc = await t.get(iRef);
+                        const current = iDoc.data();
+                        t.update(iRef, { quantity: type === 'Sale' ? current.quantity - item.qty : current.quantity + item.qty });
+                    }
+                }
+
+                if ((type === 'Sale' || type === 'Purchase') && contactId) {
+                    const cRef = doc(db, 'contacts', contactId);
+                    const cDoc = await t.get(cRef);
+                    const change = type === 'Purchase' ? credit : -credit;
+                    t.update(cRef, { balance: (cDoc.data().balance || 0) + change });
+                }
+            });
+            onClose();
+        } catch (e) { alert(e.message); } finally { setLoading(false); }
+    };
 
     return (
-        <div className="space-y-4">
-            <SearchBar value={search} onChange={setSearch} placeholder="ابحث عن صنف..." darkMode={darkMode} />
-            <div className="flex gap-2 pb-2">
-                {[{id:'all',l:'الكل'},{id:'low',l:'⚠️ نواقص'},{id:'top',l:'🔥 الأكثر مبيعاً'}].map(f => (
-                    <button key={f.id} onClick={() => setFilter(f.id)} className={`flex-1 py-1 rounded-md text-xs font-bold ${filter === f.id ? 'bg-indigo-600 text-white' : 'bg-gray-200 text-gray-700'}`}>{f.l}</button>
-                ))}
+        <div className="space-y-5">
+            <div className={`flex p-1 rounded-2xl overflow-x-auto ${darkMode ? 'bg-gray-700' : 'bg-gray-100'}`}>
+                <button onClick={() => setType('Sale')} className={`flex-1 py-2 min-w-[70px] rounded-xl font-bold text-xs transition-all ${type === 'Sale' ? 'bg-white shadow text-green-600' : 'text-gray-500'}`}>بيع</button>
+                <button onClick={() => setType('Purchase')} className={`flex-1 py-2 min-w-[70px] rounded-xl font-bold text-xs transition-all ${type === 'Purchase' ? 'bg-white shadow text-orange-600' : 'text-gray-500'}`}>شراء</button>
+                <button onClick={() => setType('Expense')} className={`flex-1 py-2 min-w-[70px] rounded-xl font-bold text-xs transition-all ${type === 'Expense' ? 'bg-white shadow text-red-600' : 'text-gray-500'}`}>مصروف</button>
+                <button onClick={() => setType('Capital')} className={`flex-1 py-2 min-w-[70px] rounded-xl font-bold text-xs transition-all ${type === 'Capital' ? 'bg-white shadow text-blue-600' : 'text-gray-500'}`}>رأس مال</button>
             </div>
-            <div className="space-y-3">
-                {displayed.map(item => (
-                    <div key={item.id} className={`p-3 rounded-xl border relative overflow-hidden ${darkMode ? 'bg-gray-800 border-gray-700' : 'bg-white'}`}>
-                        <div className="absolute bottom-0 left-0 h-1 bg-gray-200 w-full"><div className={`h-full ${item.quantity <= 5 ? 'bg-red-500' : 'bg-green-500'}`} style={{ width: `${Math.min(item.quantity * 10, 100)}%` }} /></div>
-                        <div className="flex justify-between">
-                            <div>
-                                <p className="font-bold">{item.name}</p>
-                                <p className={`text-xs font-bold ${item.quantity <= 5 ? 'text-red-500' : 'text-indigo-500'}`}>{item.quantity} {item.unit}</p>
+
+            {(type === 'Sale' || type === 'Purchase') && (
+                <>
+                    <div className="space-y-1">
+                        <label className="text-xs text-gray-500 pr-2">العميل / المورد</label>
+                        {!isQuickAddContact ? (
+                            <div className="flex gap-2">
+                                <select value={contactId} onChange={e => setContactId(e.target.value)} className={`flex-1 p-4 border rounded-xl shadow-sm outline-none ${inputBg}`} disabled={!!preSelectedContactId}>
+                                    <option value="">اختر من القائمة...</option>
+                                    {activeContacts.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                                </select>
+                                <button onClick={() => setIsQuickAddContact(true)} className="bg-blue-100 text-blue-600 px-4 rounded-xl text-2xl font-bold hover:bg-blue-200 transition-colors" disabled={!!preSelectedContactId}>+</button>
                             </div>
-                            <div className="text-left">
-                                <p className="text-[10px] text-gray-500">ربح تقديري</p>
-                                <p className="font-bold text-green-600 text-sm">{formatCurrency(item.profit)}</p>
+                        ) : (
+                            <div className="flex gap-2 animate-in fade-in">
+                                <input autoFocus value={newContactName} onChange={(e) => setNewContactName(e.target.value)} className={`flex-1 p-4 border rounded-xl shadow-sm outline-none ${inputBg}`} placeholder="الاسم الجديد" />
+                                <button onClick={handleQuickSaveContact} className="bg-blue-600 text-white px-4 rounded-xl font-bold shadow">حفظ</button>
+                                <button onClick={() => setIsQuickAddContact(false)} className="bg-gray-200 text-gray-600 px-3 rounded-xl">X</button>
                             </div>
+                        )}
+                    </div>
+
+                    <div className={`${darkMode ? 'bg-gray-800 border-gray-700' : 'bg-gray-50 border-gray-200'} p-4 rounded-2xl border space-y-3`}>
+                        <p className={`text-sm font-bold ${darkMode ? 'text-gray-300' : 'text-gray-700'}`}>إضافة أصناف</p>
+                        <div className="flex gap-2">
+                            <select value={selItemId} onChange={e => {
+                                setSelItemId(e.target.value);
+                                const i = inventoryItems.find(x => x.id === e.target.value);
+                                if(i) setPrice(type === 'Sale' ? (i.lastPurchasePrice * 1.2) : i.lastPurchasePrice); 
+                            }} className={`flex-[2] p-3 border rounded-xl text-sm ${inputBg}`}>
+                                <option value="">اختر الصنف...</option>
+                                {inventoryItems.map(i => <option key={i.id} value={i.id}>{i.name} ({i.quantity})</option>)}
+                            </select>
+                            <input type="number" value={qty} onChange={e => setQty(e.target.value)} placeholder="العدد" className={`flex-1 p-3 border rounded-xl text-sm text-center ${inputBg}`}/>
+                        </div>
+                        <div className="flex gap-2">
+                            <input type="number" value={price} onChange={e => setPrice(e.target.value)} placeholder="السعر" className={`flex-[2] p-3 border rounded-xl text-sm text-center ${inputBg}`}/>
+                            <button onClick={addItem} className="flex-1 bg-blue-600 text-white rounded-xl font-bold text-sm shadow-md">أضف +</button>
                         </div>
                     </div>
-                ))}
+
+                    {items.length > 0 && (
+                        <div className={`border rounded-2xl overflow-hidden shadow-sm ${darkMode ? 'border-gray-700' : 'border-gray-200'}`}>
+                            <table className={`w-full text-sm text-right ${darkMode ? 'bg-gray-800 text-white' : 'bg-white'}`}>
+                                <thead className={darkMode ? 'bg-gray-700 text-gray-300' : 'bg-gray-100 text-gray-600'}><tr><th className="p-3">الصنف</th><th className="p-3">العدد</th><th className="p-3">الإجمالي</th></tr></thead>
+                                <tbody>
+                                    {items.map((i, idx) => (
+                                        <tr key={idx} className={`border-t ${darkMode ? 'border-gray-700' : 'border-gray-100'}`}><td className="p-3">{i.name}</td><td className="p-3">{i.qty}</td><td className="p-3 font-bold">{formatCurrency(i.subtotal)}</td></tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                            <div className={`p-4 text-left font-bold border-t flex justify-between items-center ${darkMode ? 'bg-gray-900 border-gray-700 text-white' : 'bg-gray-50 border-gray-200'}`}>
+                                <span>إجمالي الفاتورة</span>
+                                <span className="text-lg text-blue-600">{formatCurrency(totalAmount)}</span>
+                            </div>
+                        </div>
+                    )}
+
+                    <div className={`${bg} p-4 rounded-2xl border shadow-sm space-y-3`}>
+                        <div className="flex items-center gap-3">
+                            <span className="text-sm font-bold text-gray-500">المدفوع كاش:</span>
+                            <input type="number" value={paid} onChange={e => setPaid(e.target.value)} className="flex-1 p-2 text-xl font-bold text-green-600 outline-none text-left border-b border-gray-200 focus:border-green-500 bg-transparent" placeholder="0" />
+                        </div>
+                        <div className="flex justify-between text-sm pt-2 border-t border-dashed">
+                            <span className="text-gray-500">المتبقي (يسجل عليه):</span>
+                            <span className="font-bold text-red-600 text-lg">{formatCurrency(totalAmount - (Number(paid)||0))}</span>
+                        </div>
+                    </div>
+                </>
+            )}
+
+            {(type === 'Expense' || type === 'Capital') && (
+                <div className={`${bg} p-5 rounded-2xl border shadow-sm space-y-4`}>
+                    <div>
+                        <label className="text-xs text-gray-500 block mb-1">{type === 'Expense' ? 'قيمة المصروف' : 'المبلغ'}</label>
+                        <input type="number" value={amount} onChange={e => setAmount(e.target.value)} className={`w-full p-4 border rounded-xl text-xl font-bold text-center outline-none ${inputBg}`} placeholder="0.00" autoFocus />
+                    </div>
+                    <div>
+                        <label className="text-xs text-gray-500 block mb-1">بيان / ملاحظات</label>
+                        <input type="text" value={description} onChange={e => setDescription(e.target.value)} className={`w-full p-3 border rounded-xl outline-none ${inputBg}`} placeholder={type === 'Expense' ? 'مثال: إيجار، كهرباء...' : 'مثال: زيادة رأس مال...'} />
+                    </div>
+                </div>
+            )}
+
+            <div className="flex gap-3 pt-2 pb-8">
+                <div className="flex-[2]"><MobileButton onClick={saveTransaction} disabled={loading}>{loading ? 'جارٍ الحفظ...' : '✅ حفظ العملية'}</MobileButton></div>
+                <MobileButton onClick={onClose} color="bg-gray-500" outline full={false}>إلغاء</MobileButton>
             </div>
         </div>
     );
 };
 
-const SettingsScreen = ({ handleLogout, userEmail, darkMode, toggleDarkMode, showInstall }) => (
-    <div className="space-y-6 p-4">
-        <div className={`p-4 rounded-xl shadow-md space-y-3 border-l-4 border-green-500 ${darkMode ? 'bg-gray-800' : 'bg-white'}`}>
-            <h3 className="text-xl font-bold text-green-600 border-b border-gray-600 pb-2">تثبيت التطبيق</h3>
-            <p className="text-sm text-gray-500">قم بتثبيت "مديرك المالي" على هاتفك ليعمل كتطبيق منفصل.</p>
-            <MobileButton onClick={showInstall} color="bg-green-600">📱 تثبيت على الهاتف</MobileButton>
+const Dashboard = ({ summary, onNavigate, darkMode }) => (
+    <div className="space-y-6 animate-in fade-in duration-500">
+        <div className="flex justify-between items-center px-2">
+            <h2 className={`font-bold text-xl ${darkMode ? 'text-white' : 'text-gray-800'}`}>لوحة التحكم</h2>
+            <span className="text-[10px] bg-blue-50 text-blue-600 px-2 py-1 rounded-lg border border-blue-100 font-bold">أ/ خالد إسماعيل</span>
         </div>
-        <div className={`p-4 rounded-xl shadow-md space-y-3 ${darkMode ? 'bg-gray-800' : 'bg-white'}`}>
-            <h3 className="text-xl font-bold text-indigo-500 border-b border-gray-600 pb-2">المظهر</h3>
-            <div className="flex justify-between items-center">
-                <span>الوضع المظلم (Dark Mode)</span>
-                <button onClick={toggleDarkMode} className={`w-12 h-6 rounded-full flex items-center p-1 transition-colors ${darkMode ? 'bg-indigo-600 justify-end' : 'bg-gray-300 justify-start'}`}>
-                    <div className="w-4 h-4 bg-white rounded-full shadow-md"></div>
-                </button>
+
+        <div className="bg-gradient-to-br from-blue-600 to-blue-800 p-6 rounded-3xl text-white shadow-xl shadow-blue-200 relative overflow-hidden">
+            <div className="absolute top-0 right-0 w-40 h-40 bg-white/10 rounded-full -mr-10 -mt-10 blur-2xl"></div>
+            <div className="relative z-10">
+                <p className="text-blue-100 mb-1 text-sm font-medium">السيولة النقدية (الكاش)</p>
+                <h2 className="text-5xl font-bold tracking-tight">{formatCurrency(summary.cash)}</h2>
+                <p className="text-xs text-blue-200 mt-2 opacity-80">صافي الحركة النقدية في الخزينة</p>
             </div>
         </div>
-        <div className={`p-4 rounded-xl shadow-md space-y-3 ${darkMode ? 'bg-gray-800' : 'bg-white'}`}>
-            <h3 className="text-xl font-bold text-indigo-500 border-b border-gray-600 pb-2">الحساب</h3>
-            <p className="text-sm opacity-70">المستخدم: {userEmail}</p>
-            <MobileButton onClick={handleLogout} color="bg-red-600">خروج</MobileButton>
+
+        <div>
+            <h3 className={`font-bold mb-4 text-lg ${darkMode ? 'text-gray-300' : 'text-gray-800'}`}>الأداء المالي</h3>
+            <div className="grid grid-cols-2 gap-3">
+                <InfoCard title="إجمالي المبيعات" value={formatCurrency(summary.tSales)} type="info" icon="🛒" darkMode={darkMode} />
+                <InfoCard title="إجمالي المشتريات" value={formatCurrency(summary.tPurchases)} type="warning" icon="🚚" darkMode={darkMode} />
+                <InfoCard title="المصروفات" value={formatCurrency(summary.tExpenses)} type="danger" icon="💸" darkMode={darkMode} />
+            </div>
+        </div>
+
+        <div>
+            <h3 className={`font-bold mb-4 text-lg ${darkMode ? 'text-gray-300' : 'text-gray-800'}`}>ملخص الأرصدة</h3>
+            <div className="grid grid-cols-2 gap-4">
+                <InfoCard title="لي (عند العملاء)" value={formatCurrency(summary.owedToMe)} type="success" icon="📉" onClick={() => onNavigate('Contacts')} darkMode={darkMode} />
+                <InfoCard title="علي (للموردين)" value={formatCurrency(summary.iOwe)} type="danger" icon="📈" onClick={() => onNavigate('Contacts')} darkMode={darkMode} />
+            </div>
         </div>
     </div>
 );
 
-const Dashboard = ({ transactions, contacts, darkMode }) => {
-    const stats = useMemo(() => {
-        let p = 0, s = 0, e = 0, c = 0;
-        transactions.forEach(t => {
-            if (t.type === 'Purchase') p += t.amount;
-            if (t.type === 'Sale') s += t.amount;
-            if (t.type === 'Expense') e += t.amount;
-            if (t.type === 'Capital') c += t.amount;
-            if (t.type === 'Settlement') {
-                const contact = contacts.find(x => x.id === t.contactId);
-                if (contact) c += (contact.type === 'Customer' ? t.amount : -t.amount);
-            }
-        });
-        return { p, s, e, c: c + (s - p - e) };
-    }, [transactions, contacts]);
+const App = () => {
+    const [user, setUser] = useState(null);
+    const [screen, setScreen] = useState('Dashboard');
+    const [selectedContact, setSelectedContact] = useState(null);
+    const [data, setData] = useState({ contacts: [], transactions: [], inventory: [] });
+    const [darkMode, setDarkMode] = useState(false);
 
-    const debts = useMemo(() => {
-        let owe = 0, owed = 0;
-        contacts.forEach(c => { if (c.balance > 0) owed += c.balance; if (c.balance < 0) owe += Math.abs(c.balance); });
-        return { owe, owed };
-    }, [contacts]);
+    useEffect(() => onAuthStateChanged(auth, (u) => setUser(u)), []);
+
+    useEffect(() => {
+        if (!user) return;
+        const unsub1 = onSnapshot(query(collection(db, 'contacts'), where('userId', '==', user.uid)), s => setData(d => ({ ...d, contacts: mapSnapshotToData(s) })));
+        const unsub2 = onSnapshot(query(collection(db, 'transactions'), where('userId', '==', user.uid)), s => setData(d => ({ ...d, transactions: mapSnapshotToData(s) })));
+        const unsub3 = onSnapshot(query(collection(db, 'inventory_items'), where('userId', '==', user.uid)), s => setData(d => ({ ...d, inventory: mapSnapshotToData(s) })));
+        return () => { unsub1(); unsub2(); unsub3(); };
+    }, [user]);
+
+    const summary = useMemo(() => {
+        let owedToMe = 0, iOwe = 0, cash = 0;
+        let tSales = 0, tPurchases = 0, tExpenses = 0;
+
+        data.contacts.forEach(c => {
+            if (c.balance < 0) owedToMe += Math.abs(c.balance);
+            if (c.balance > 0) iOwe += c.balance;
+        });
+        data.transactions.forEach(t => {
+            if (t.type === 'Sale') { cash += t.paidAmount || 0; tSales += t.amount || 0; }
+            if (t.type === 'Purchase') { cash -= t.paidAmount || 0; tPurchases += t.amount || 0; }
+            if (t.type === 'Expense') { cash -= t.amount || 0; tExpenses += t.amount || 0; }
+            if (t.type === 'Capital') { cash += t.amount || 0; }
+        });
+        return { owedToMe, iOwe, cash, tSales, tPurchases, tExpenses };
+    }, [data]);
+
+    if (!user) return <LoginScreen />;
 
     return (
-        <div className="space-y-4">
-            <SummaryCard title="النقدية (الكاش)" value={stats.c} color={stats.c >= 0 ? 'text-green-600' : 'text-red-600'} darkMode={darkMode} />
-            <div className="grid grid-cols-2 gap-4">
-                <SummaryCard title="لي (عند العملاء)" value={debts.owed} color="text-green-600" darkMode={darkMode} />
-                <SummaryCard title="علي (للموردين)" value={debts.owe} color="text-red-600" darkMode={darkMode} />
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-                <SummaryCard title="مبيعات" value={stats.s} color="text-indigo-600" darkMode={darkMode} />
-                <SummaryCard title="مصروفات" value={stats.e} color="text-red-600" darkMode={darkMode} />
+        <div className={`min-h-screen flex justify-center font-sans transition-colors duration-300 ${darkMode ? 'bg-gray-900 text-white' : 'bg-gray-100 text-gray-900'}`} dir="rtl">
+            <div className={`w-full max-w-md min-h-screen shadow-2xl relative flex flex-col border-x transition-colors duration-300 ${darkMode ? 'bg-gray-900 border-gray-800' : 'bg-white border-gray-200'}`}>
+                {screen !== 'Dashboard' && (
+                    <div className={`p-4 sticky top-0 z-20 border-b flex items-center justify-between shadow-sm ${darkMode ? 'bg-gray-900 border-gray-800' : 'bg-white'}`}>
+                        <button onClick={() => { if (selectedContact) { setSelectedContact(null); } else { setScreen('Dashboard'); } }} className={`p-2 rounded-full text-xl ${darkMode ? 'text-white hover:bg-gray-800' : 'text-gray-600 hover:bg-gray-100'}`}>➜</button>
+                        <h1 className="font-bold text-lg">{selectedContact ? 'تفاصيل الحساب' : screen === 'Contacts' ? 'العملاء والموردين' : screen === 'Inventory' ? 'المخزون' : screen === 'Settings' ? 'الإعدادات' : 'حركة جديدة'}</h1>
+                        <div className="w-8"></div>
+                    </div>
+                )}
+
+                <div className={`flex-1 overflow-y-auto p-5 pb-24 ${darkMode ? 'bg-gray-900' : 'bg-gray-50/50'}`}>
+                    {screen === 'Dashboard' && <Dashboard summary={summary} onNavigate={setScreen} darkMode={darkMode} />}
+                    {screen === 'Contacts' && !selectedContact && <ContactsManagerScreen contacts={data.contacts} userId={user.uid} onSelectContact={(c) => setSelectedContact(c)} darkMode={darkMode} />}
+                    {screen === 'Contacts' && selectedContact && <ContactDetailsScreen contact={selectedContact} transactions={data.transactions} onBack={() => setSelectedContact(null)} onAddTransaction={() => setScreen('TransactionForm')} darkMode={darkMode} />}
+                    {screen === 'TransactionForm' && <AddTransactionScreen contacts={data.contacts} inventoryItems={data.inventory} userId={user.uid} preSelectedContactId={selectedContact?.id} onClose={() => { setScreen(selectedContact ? 'Contacts' : 'Dashboard'); }} darkMode={darkMode} />}
+                    {screen === 'Settings' && <SettingsScreen user={user} onLogout={() => signOut(auth)} darkMode={darkMode} toggleDarkMode={() => setDarkMode(!darkMode)} />}
+                    {screen === 'Inventory' && <div className="text-center py-20"><p className="text-6xl mb-4">🚧</p><p className="font-bold">قريباً</p><div className="mt-6"><MobileButton onClick={() => setScreen('Dashboard')} color="bg-gray-500" outline full={false}>عودة</MobileButton></div></div>}
+                </div>
+
+                <div className="absolute bottom-0 w-full z-20">
+                    <div className={`text-center py-1 border-t text-[9px] font-mono ${darkMode ? 'bg-gray-800 border-gray-700 text-gray-500' : 'bg-gray-100 border-gray-200 text-gray-400'}`}>Dev: acc-aymanalaa | 01272725354</div>
+                    <div className={`border-t flex justify-around items-end pb-4 pt-2 px-2 shadow-[0_-5px_20px_rgba(0,0,0,0.05)] ${darkMode ? 'bg-gray-900 border-gray-800' : 'bg-white'}`}>
+                        <button onClick={() => setScreen('Dashboard')} className={`flex flex-col items-center w-16 ${screen === 'Dashboard' ? 'text-blue-600' : 'text-gray-400 hover:text-blue-600'}`}><span className="text-2xl mb-1">🏠</span><span className="text-[10px] font-bold">الرئيسية</span></button>
+                        <button onClick={() => setScreen('Contacts')} className={`flex flex-col items-center w-16 ${screen === 'Contacts' ? 'text-blue-600' : 'text-gray-400 hover:text-blue-600'}`}><span className="text-2xl mb-1">👥</span><span className="text-[10px] font-bold">العملاء</span></button>
+                        <div className="relative -top-5"><button onClick={() => setScreen('TransactionForm')} className={`w-16 h-16 bg-blue-600 rounded-full flex items-center justify-center text-white text-3xl shadow-xl shadow-blue-200 hover:scale-105 transition-transform border-4 ${darkMode ? 'border-gray-900' : 'border-gray-50'}`}>+</button></div>
+                        <button onClick={() => setScreen('Inventory')} className={`flex flex-col items-center w-16 ${screen === 'Inventory' ? 'text-blue-600' : 'text-gray-400 hover:text-blue-600'}`}><span className="text-2xl mb-1">📦</span><span className="text-[10px] font-bold">المخزون</span></button>
+                        <button onClick={() => setScreen('Settings')} className={`flex flex-col items-center w-16 ${screen === 'Settings' ? 'text-blue-600' : 'text-gray-400 hover:text-blue-600'}`}><span className="text-2xl mb-1">⚙️</span><span className="text-[10px] font-bold">الإعدادات</span></button>
+                    </div>
+                </div>
             </div>
         </div>
-    );
-};
-
-const App = () => {
-    const [userId, setUserId] = useState(null);
-    const [screen, setScreen] = useState('Dashboard'); 
-    const [transactions, setTransactions] = useState([]);
-    const [contacts, setContacts] = useState([]);
-    const [inventoryItems, setInventoryItems] = useState([]); 
-    const [userEmail, setUserEmail] = useState(null);
-    const [notification, setNotification] = useState(null);
-    const [darkMode, setDarkMode] = useState(() => localStorage.getItem('darkMode') === 'true');
-    const [showInstallGuide, setShowInstallGuide] = useState(false);
-    const [isOnline, setIsOnline] = useState(navigator.onLine);
-
-    useEffect(() => { localStorage.setItem('darkMode', darkMode); }, [darkMode]);
-    useEffect(() => {
-        const handleStatusChange = () => setIsOnline(navigator.onLine);
-        window.addEventListener('online', handleStatusChange);
-        window.addEventListener('offline', handleStatusChange);
-        return () => {
-            window.removeEventListener('online', handleStatusChange);
-            window.removeEventListener('offline', handleStatusChange);
-        };
-    }, []);
-
-    const notify = (message, type = 'success') => setNotification({ message, type });
-
-    useEffect(() => {
-        if (!auth) return;
-        return onAuthStateChanged(auth, u => { setUserId(u ? u.uid : null); setUserEmail(u ? u.email : null); });
-    }, []);
-
-    useEffect(() => {
-        if (!db || !userId) return;
-        const q = (col) => query(collection(db, col), where('userId', '==', userId));
-        const un1 = onSnapshot(q('transactions'), s => setTransactions(mapSnapshotToData(s)));
-        const un2 = onSnapshot(q('contacts'), s => setContacts(mapSnapshotToData(s)));
-        const un3 = onSnapshot(q('inventory_items'), s => setInventoryItems(mapSnapshotToData(s)));
-        return () => { un1(); un2(); un3(); };
-    }, [userId]);
-
-    if (!userId) return <LoginScreen setUserId={setUserId} />;
-
-    const props = { contacts, inventoryItems, transactions, userId, notify, darkMode };
-    const renderScreen = () => {
-        switch (screen) {
-            case 'Transactions': return <AddTransactionForm {...props} />;
-            case 'History': return <TransactionHistory {...props} />;
-            case 'Contacts': return <ContactsScreen {...props} />;
-            case 'Inventory': return <InventoryManagement {...props} />;
-            case 'Settings': return <SettingsScreen handleLogout={() => signOut(auth)} userEmail={userEmail} darkMode={darkMode} toggleDarkMode={() => setDarkMode(!darkMode)} showInstall={() => setShowInstallGuide(true)} />;
-            default: return <Dashboard {...props} />;
-        }
-    };
-
-    return (
-        <MobileContainer darkMode={darkMode}>
-            <NotificationToast notification={notification} onClose={() => setNotification(null)} />
-            <InstallGuide show={showInstallGuide} onClose={() => setShowInstallGuide(false)} darkMode={darkMode} />
-            
-            <header className={`p-4 shadow-lg flex flex-col items-center sticky top-0 z-10 transition-colors ${darkMode ? 'bg-gray-800 text-white' : 'bg-indigo-700 text-white'}`}>
-                <div className="w-full flex justify-between items-center">
-                    <div className={`w-2 h-2 rounded-full ${isOnline ? 'bg-green-400' : 'bg-red-500'}`}></div>
-                    <h1 className="text-xl font-extrabold">مديرك المالي</h1>
-                    <div className="w-2"></div>
-                </div>
-                <p className="text-xs opacity-80">{screen === 'Settings' ? 'الإعدادات' : screen === 'Inventory' ? 'المخزون والأرباح' : 'الرئيسية'}</p>
-                {!isOnline && <p className="text-[10px] bg-red-500 text-white px-2 rounded mt-1">وضع العمل بدون إنترنت</p>}
-            </header>
-            <div className="mobile-body p-4 w-full max-w-md">{renderScreen()}</div>
-            <nav className={`absolute bottom-0 w-full max-w-[480px] border-t shadow-2xl z-10 flex justify-around items-center h-16 transition-colors ${darkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'}`}>
-                {[{n:'الرئيسية',i:'home',s:'Dashboard'}, {n:'حركة',i:'plus',s:'Transactions'}, {n:'سجل',i:'clock',s:'History'}, {n:'المخزون',i:'box',s:'Inventory'}, {n:'إعدادات',i:'cog',s:'Settings'}].map(x => (
-                    <button key={x.s} onClick={() => setScreen(x.s)} className={`flex flex-col items-center p-2 text-sm ${screen === x.s ? 'text-indigo-500 font-bold' : 'text-gray-500'}`}>
-                         {x.i === 'home' && <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l-7-7m7 7v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" /></svg>}
-                         {x.i === 'plus' && <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>}
-                         {x.i === 'clock' && <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>}
-                         {x.i === 'box' && <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" /></svg>}
-                         {x.i === 'cog' && <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35-.29.474-.483 1.05-.483 1.649 0 2.21 1.79 4 4 4s4-1.79 4-4c0-.598-.193-1.174-.484-1.648a3.36 3.36 0 00-.918-1.503 3.36 3.36 0 00-1.503-.918c-.474-.29-.667-.667-.923-1.077a2.954 2.954 0 00-1.385-1.385c-.41-.256-.787-.449-1.077-.923a1.724 1.724 0 00-2.572-1.065 3.36 3.36 0 00-1.503-.918 3.36 3.36 0 00-.918-1.503c-.29-.474-.483-1.05-.483-1.649 0-2.21-1.79-4-4-4s-4 1.79-4 4c0 .598.193 1.174.484 1.648a3.36 3.36 0 00.918 1.503 3.36 3.36 0 001.503.918c.474.29.667.667.923 1.077a2.954 2.954 0 001.385 1.385c.41.256.787.449 1.077.923a1.724 1.724 0 002.572 1.065 3.36 3.36 0 001.503.918 3.36 3.36 0 00.918 1.503c.29.474.483 1.05.483 1.649 0 2.21 1.79 4 4 4s4-1.79 4-4z" /></svg>}
-                         <span className="text-[10px]">{x.n}</span>
-                    </button>
-                ))}
-            </nav>
-        </MobileContainer>
     );
 };
 
