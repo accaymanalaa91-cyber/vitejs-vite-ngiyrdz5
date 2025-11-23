@@ -162,17 +162,17 @@ const Dashboard = ({ summary, onNavigate, darkMode }) => (
                 <h2 className="text-5xl font-bold">{formatCurrency(summary.cash)}</h2>
             </div>
         </div>
-        <div className={`${darkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-blue-100'} p-5 rounded-2xl border flex justify-between items-center shadow-sm`}>
-            <div>
-                <p className={`text-sm ${darkMode ? 'text-gray-400' : 'text-gray-500'} mb-1`}>رأس المال المستثمر</p>
-                <p className="text-2xl font-bold text-blue-600">{formatCurrency(summary.investedCapital)}</p>
+        <div className="grid grid-cols-2 gap-3">
+            <div className={`${darkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-blue-50'} p-5 rounded-2xl border flex flex-col justify-center items-center shadow-sm`}>
+                <span className="text-2xl mb-1">💰</span>
+                <p className={`text-xs ${darkMode ? 'text-gray-400' : 'text-gray-500'} mb-1`}>رأس المال المستثمر</p>
+                <p className="text-lg font-bold text-blue-600">{formatCurrency(summary.investedCapital)}</p>
             </div>
-            <div className="text-4xl p-3 bg-blue-50 rounded-full">💰</div>
+            <InfoCard title="مصروفات" value={formatCurrency(summary.tExpenses)} type="danger" icon="💸" darkMode={darkMode} />
         </div>
         <div className="grid grid-cols-2 gap-3">
             <InfoCard title="مبيعات" value={formatCurrency(summary.tSales)} type="info" icon="🛒" darkMode={darkMode} />
             <InfoCard title="مشتريات" value={formatCurrency(summary.tPurchases)} type="warning" icon="🚚" darkMode={darkMode} />
-            <InfoCard title="مصروفات" value={formatCurrency(summary.tExpenses)} type="danger" icon="💸" darkMode={darkMode} />
         </div>
         <div className="grid grid-cols-2 gap-3">
             <InfoCard title="لي (عند العملاء)" value={formatCurrency(summary.owedToMe)} type="success" icon="📉" onClick={() => onNavigate('Contacts')} darkMode={darkMode} />
@@ -700,7 +700,6 @@ const App = () => {
         if (!window.confirm('حذف نهائي؟')) return;
         try {
             await runTransaction(db, async (tr) => {
-                // 1. READS
                 const readOps = [];
                 if (t.items) t.items.forEach(i => readOps.push(doc(db, 'inventory_items', i.itemId)));
                 if (t.contactId) readOps.push(doc(db, 'contacts', t.contactId));
@@ -708,7 +707,6 @@ const App = () => {
                 const invMap = new Map(snaps.filter(s => s.ref.path.includes('inventory')).map(s => [s.id, s]));
                 const contactSnap = snaps.find(s => s.ref.path.includes('contacts'));
 
-                // 2. WRITES
                 if (t.items) {
                     t.items.forEach(i => {
                         const d = invMap.get(i.itemId);
@@ -719,7 +717,7 @@ const App = () => {
                     let rev = 0;
                     if(t.type==='Sale') rev = -t.creditAmount;
                     if(t.type==='Purchase') rev = t.creditAmount;
-                    if(t.type==='Settlement') { const isCust = data.contacts.find(c=>c.id===t.contactId)?.type==='Customer'; rev = isCust ? t.amount : -t.amount; }
+                    if(t.type==='Settlement') { const isCust = data.contacts.find(c=>c.id===t.contactId)?.type==='Customer'; rev = t.amount : -t.amount; }
                     tr.update(contactSnap.ref, { balance: (contactSnap.data().balance||0) + rev });
                 }
                 tr.delete(doc(db, 'transactions', t.id));
