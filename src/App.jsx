@@ -91,7 +91,7 @@ const MobileButton = ({ children, onClick, color = 'bg-blue-600', outline = fals
     </button>
 );
 
-const InfoCard = ({ title, value, icon, type = 'neutral', darkMode }) => {
+const InfoCard = ({ title, value, subValue, icon, type = 'neutral', onClick, darkMode }) => {
     const bg = darkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-100';
     const colors = {
         neutral: darkMode ? 'text-gray-200' : 'text-gray-800',
@@ -101,10 +101,11 @@ const InfoCard = ({ title, value, icon, type = 'neutral', darkMode }) => {
         warning: darkMode ? 'text-orange-400' : 'text-orange-700'
     };
     return (
-        <div className={`p-4 rounded-2xl border shadow-sm flex items-center justify-between ${bg}`}>
+        <div onClick={onClick} className={`p-4 rounded-2xl border shadow-sm flex items-center justify-between ${bg} ${onClick ? 'active:opacity-80 cursor-pointer' : ''}`}>
             <div>
                 <p className={`text-xs mb-1 ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>{title}</p>
                 <p className={`text-xl font-bold ${colors[type]}`}>{value}</p>
+                {subValue && <p className="text-xs text-gray-400 mt-1">{subValue}</p>}
             </div>
             {icon && <div className={`p-3 rounded-full shadow-sm text-2xl ${darkMode ? 'bg-gray-700 text-white' : 'bg-white'}`}>{icon}</div>}
         </div>
@@ -149,7 +150,7 @@ const LoginScreen = () => {
     );
 };
 
-const Dashboard = ({ summary, darkMode }) => (
+const Dashboard = ({ summary, onNavigateToContacts, darkMode }) => (
     <div className="space-y-5 animate-in fade-in">
         <div className="flex justify-between px-2 items-center">
             <h2 className={`font-bold text-xl ${darkMode ? 'text-white' : 'text-gray-800'}`}>لوحة التحكم</h2>
@@ -174,7 +175,7 @@ const Dashboard = ({ summary, darkMode }) => (
             <div className="text-4xl p-3 bg-blue-50 rounded-full">💰</div>
         </div>
 
-        {/* 3. ملخص النشاط التجاري (مبيعات - مشتريات - مصاريف) */}
+        {/* 3. ملخص النشاط التجاري */}
         <div className="grid grid-cols-2 gap-3">
             <InfoCard title="إجمالي المبيعات" value={formatCurrency(summary.tSales)} type="info" icon="🛒" darkMode={darkMode} />
             <InfoCard title="إجمالي المشتريات" value={formatCurrency(summary.tPurchases)} type="warning" icon="🚚" darkMode={darkMode} />
@@ -183,10 +184,14 @@ const Dashboard = ({ summary, darkMode }) => (
             </div>
         </div>
 
-        {/* 4. الأرصدة والديون (لي وعلي) */}
+        {/* 4. الأرصدة والديون (تعمل كأزرار تنقل) */}
         <div className="grid grid-cols-2 gap-3">
-            <InfoCard title="لي (عند العملاء)" value={formatCurrency(summary.owedToMe)} type="success" icon="📉" darkMode={darkMode} />
-            <InfoCard title="علي (للموردين)" value={formatCurrency(summary.iOwe)} type="danger" icon="📈" darkMode={darkMode} />
+            <div onClick={() => onNavigateToContacts('Customer')} className="cursor-pointer transform active:scale-95 transition-transform">
+                <InfoCard title="لي (عند العملاء)" value={formatCurrency(summary.owedToMe)} type="success" icon="📉" darkMode={darkMode} />
+            </div>
+            <div onClick={() => onNavigateToContacts('Supplier')} className="cursor-pointer transform active:scale-95 transition-transform">
+                <InfoCard title="علي (للموردين)" value={formatCurrency(summary.iOwe)} type="danger" icon="📈" darkMode={darkMode} />
+            </div>
         </div>
     </div>
 );
@@ -224,7 +229,7 @@ const HistoryScreen = ({ transactions, darkMode, onEditTransaction, onDeleteTran
                                 </div>
                                 <span className="text-[10px] text-blue-500 px-1">✎</span>
                             </div>
-                            <p className={`text-sm font-medium ${text}`}>{t.contactName || t.description}</p>
+                            <p className={`text-sm font-medium ${text}`}>{String(t.contactName || t.description)}</p>
                             <div className="flex justify-between items-end mt-1">
                                 <p className={`font-bold ${text}`}>{formatCurrency(t.amount)}</p>
                                 {t.creditAmount > 0 && <p className="text-[10px] text-red-500 font-bold">متبقي: {formatCurrency(t.creditAmount)}</p>}
@@ -259,22 +264,38 @@ const ContactDetailsScreen = ({ contact, transactions, onBack, onAddTransaction,
     const contactTransactions = useMemo(() => transactions.filter(t => t.contactId === contact.id), [transactions, contact]);
     const bg = darkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-100';
     const text = darkMode ? 'text-gray-200' : 'text-gray-800';
+    const textSub = darkMode ? 'text-gray-400' : 'text-gray-600';
+
     return (
         <div className="space-y-4 animate-in slide-in-from-bottom-4">
             <div className={`flex items-center gap-3 pb-2 border-b ${darkMode ? 'border-gray-700' : 'border-gray-100'}`}>
                 <button onClick={onBack} className="p-2 rounded-full text-xl">➜</button>
                 <h2 className={`text-xl font-bold ${text}`}>{contact.name}</h2>
             </div>
+            
+            {/* بيانات الاتصال */}
+            <div className={`${bg} p-3 rounded-xl border text-sm`}>
+                <div className="flex justify-between items-center mb-1">
+                    <span className={textSub}>الهاتف:</span>
+                    <span className={`font-bold ${text}`} dir="ltr">{contact.phone || '-'}</span>
+                </div>
+                <div className="flex justify-between items-center">
+                    <span className={textSub}>العنوان:</span>
+                    <span className={`font-bold ${text}`}>{contact.address || '-'}</span>
+                </div>
+            </div>
+
             <div className={`p-6 rounded-3xl text-white shadow-lg ${contact.balance > 0 ? 'bg-green-600' : contact.balance < 0 ? 'bg-red-600' : 'bg-gray-500'}`}>
-                <p className="text-white/80 text-sm mb-1">الرصيد</p>
+                <p className="text-white/80 text-sm mb-1">الرصيد المستحق</p>
                 <h3 className="text-4xl font-bold">{formatCurrency(Math.abs(contact.balance))}</h3>
                 <span className="text-xs">{contact.balance > 0 ? 'له (دائن)' : contact.balance < 0 ? 'عليه (مدين)' : 'خالص'}</span>
             </div>
+            
             <div className="space-y-3">
                 {contactTransactions.map(t => (
                     <div key={t.id} className={`${bg} p-3 rounded-xl border shadow-sm flex justify-between items-center`}>
                         <div>
-                            <p className={`text-xs text-gray-400`}>{formatDate(t.date)}</p>
+                            <p className={`text-xs ${textSub}`}>{formatDate(t.date)}</p>
                             <p className={`text-sm font-bold ${text}`}>{t.type === 'Sale' ? 'بيع' : t.type === 'Purchase' ? 'شراء' : 'دفعة'}</p>
                         </div>
                         <p className={`font-bold ${text}`}>{formatCurrency(t.amount)}</p>
@@ -286,17 +307,32 @@ const ContactDetailsScreen = ({ contact, transactions, onBack, onAddTransaction,
     );
 };
 
-const ContactsManagerScreen = ({ contacts, userId, onSelectContact, darkMode }) => {
-    const [activeTab, setActiveTab] = useState('Customer');
+const ContactsManagerScreen = ({ contacts, userId, onSelectContact, darkMode, initialTab }) => {
+    const [activeTab, setActiveTab] = useState(initialTab || 'Customer');
     const [showAddForm, setShowAddForm] = useState(false);
     const [newName, setNewName] = useState('');
+    const [newPhone, setNewPhone] = useState('');
+    const [newAddress, setNewAddress] = useState('');
+    
     const bg = darkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-100';
     const text = darkMode ? 'text-white' : 'text-gray-900';
+    const inputBg = darkMode ? 'bg-gray-700 text-white border-gray-600' : 'bg-white text-gray-900 border-gray-200';
 
     const handleAdd = async (e) => {
         e.preventDefault();
         if (!newName) return;
-        try { await addDoc(collection(db, 'contacts'), { userId, name: newName, type: activeTab, balance: 0 }); setNewName(''); setShowAddForm(false); } catch (e) { alert(e.message); }
+        try { 
+            await addDoc(collection(db, 'contacts'), { 
+                userId, 
+                name: newName, 
+                phone: newPhone,
+                address: newAddress,
+                type: activeTab, 
+                balance: 0,
+                createdAt: new Date().toISOString()
+            }); 
+            setNewName(''); setNewPhone(''); setNewAddress(''); setShowAddForm(false); 
+        } catch (e) { alert(e.message); }
     };
 
     const filtered = contacts.filter(c => c.type === activeTab);
@@ -306,15 +342,41 @@ const ContactsManagerScreen = ({ contacts, userId, onSelectContact, darkMode }) 
                 <button onClick={() => setActiveTab('Customer')} className={`flex-1 py-2 rounded-xl font-bold text-sm ${activeTab === 'Customer' ? 'bg-white shadow text-blue-600' : 'text-gray-500'}`}>العملاء</button>
                 <button onClick={() => setActiveTab('Supplier')} className={`flex-1 py-2 rounded-xl font-bold text-sm ${activeTab === 'Supplier' ? 'bg-white shadow text-orange-600' : 'text-gray-500'}`}>الموردين</button>
             </div>
-            {!showAddForm ? <button onClick={() => setShowAddForm(true)} className="w-full py-3 border-2 border-dashed rounded-xl font-bold text-gray-400">+ إضافة</button> : 
-            <form onSubmit={handleAdd} className={`${bg} p-4 rounded-xl border space-y-3`}><input value={newName} onChange={e => setNewName(e.target.value)} className="w-full p-2 rounded border text-black" placeholder="الاسم" /><MobileButton type="submit">حفظ</MobileButton></form>}
+            {!showAddForm ? (
+                <button onClick={() => setShowAddForm(true)} className={`w-full py-3 border-2 border-dashed rounded-xl font-bold ${darkMode ? 'border-gray-600 text-gray-400' : 'border-gray-300 text-gray-500'}`}>+ إضافة {activeTab === 'Customer' ? 'عميل' : 'مورد'}</button>
+            ) : (
+                <form onSubmit={handleAdd} className={`${bg} p-4 rounded-xl border space-y-3 animate-in fade-in`}>
+                    <h3 className={`font-bold text-sm mb-2 ${text}`}>بيانات {activeTab === 'Customer' ? 'العميل' : 'المورد'} الجديد</h3>
+                    <input value={newName} onChange={e => setNewName(e.target.value)} className={`w-full p-2 rounded border ${inputBg}`} placeholder="الاسم" autoFocus />
+                    <input value={newPhone} onChange={e => setNewPhone(e.target.value)} className={`w-full p-2 rounded border ${inputBg}`} placeholder="رقم الهاتف" type="tel" />
+                    <input value={newAddress} onChange={e => setNewAddress(e.target.value)} className={`w-full p-2 rounded border ${inputBg}`} placeholder="العنوان" />
+                    <div className="flex gap-2 pt-2">
+                        <MobileButton onClick={() => setShowAddForm(false)} color="bg-gray-500" full={false}>إلغاء</MobileButton>
+                        <div className="flex-1"><MobileButton type="submit">حفظ</MobileButton></div>
+                    </div>
+                </form>
+            )}
             <div className="space-y-2 pb-20">
                 {filtered.map(c => (
                     <div key={c.id} onClick={() => onSelectContact(c)} className={`${bg} p-4 rounded-2xl border shadow-sm flex justify-between cursor-pointer`}>
-                        <p className={`font-bold ${text}`}>{c.name}</p>
-                        <div className="text-left"><p className={`font-bold ${c.balance < 0 ? 'text-red-600' : 'text-green-600'}`}>{formatCurrency(Math.abs(c.balance))}</p><p className="text-[10px] text-gray-400">{c.balance < 0 ? 'عليه' : 'له'}</p></div>
+                        <div>
+                            <p className={`font-bold ${text}`}>{c.name}</p>
+                            <div className="text-xs text-gray-500 flex flex-col">
+                                {c.phone && <span>📞 {c.phone}</span>}
+                                {c.address && <span>📍 {c.address}</span>}
+                            </div>
+                        </div>
+                        <div className="text-left">
+                            <p className={`font-bold ${c.balance < 0 ? 'text-red-600' : 'text-green-600'}`}>{formatCurrency(Math.abs(c.balance))}</p>
+                            <p className="text-[10px] text-gray-400">{c.balance === 0 ? 'خالص' : c.balance < 0 ? 'عليه' : 'له'}</p>
+                        </div>
                     </div>
                 ))}
+                {filtered.length === 0 && !showAddForm && (
+                    <div className="text-center py-10 text-gray-400">
+                        <p>لا يوجد {activeTab === 'Customer' ? 'عملاء' : 'موردين'}</p>
+                    </div>
+                )}
             </div>
         </div>
     );
@@ -336,7 +398,7 @@ const InventoryManagement = ({ inventoryItems, darkMode }) => {
                          <div key={item.id} className={`${bg} p-3 rounded-xl border shadow-sm flex justify-between`}>
                             <div>
                                 <span className={`${text} font-bold`}>{item.name}</span>
-                                {item.unit && <span className="text-xs text-gray-400 block">({String(item.unit || 'قطعة')})</span>}
+                                {item.unit && <span className="text-xs text-gray-400 block">({String(item.unit)})</span>}
                             </div>
                             <span className={`font-bold ${item.quantity < 5 ? 'text-red-500' : 'text-green-500'}`}>{item.quantity}</span>
                          </div>
@@ -358,17 +420,20 @@ const AddTransactionScreen = ({ contacts, inventoryItems, userId, preSelectedCon
     const [txnDate, setTxnDate] = useState(defaultDate);
     const [loading, setLoading] = useState(false);
     
+    // Quick Add States
     const [itemName, setItemName] = useState('');
     const [qty, setQty] = useState('');
     const [price, setPrice] = useState('');
     const [unit, setUnit] = useState('قطعة');
+    
     const [isQuickAddContact, setIsQuickAddContact] = useState(false);
     const [newContactName, setNewContactName] = useState('');
+    const [newContactPhone, setNewContactPhone] = useState('');
+    const [newContactAddress, setNewContactAddress] = useState('');
 
     const activeContacts = contacts.filter(c => {
         if (type === 'Sale') return c.type === 'Customer';
         if (type === 'Purchase') return c.type === 'Supplier';
-        if (type === 'Settlement') return true;
         return true;
     });
     const totalAmount = items.reduce((sum, i) => sum + i.subtotal, 0);
@@ -390,8 +455,17 @@ const AddTransactionScreen = ({ contacts, inventoryItems, userId, preSelectedCon
         if (!newContactName) return;
         setLoading(true);
         try {
-            const ref = await addDoc(collection(db, 'contacts'), { userId, name: newContactName, type: type==='Sale'?'Customer':'Supplier', balance: 0, createdAt: new Date().toISOString() });
-            setContactId(ref.id); setIsQuickAddContact(false); setNewContactName('');
+            const newType = type === 'Sale' ? 'Customer' : 'Supplier';
+            const ref = await addDoc(collection(db, 'contacts'), { 
+                userId, 
+                name: newContactName, 
+                phone: newContactPhone,
+                address: newContactAddress,
+                type: newType, 
+                balance: 0, 
+                createdAt: new Date().toISOString() 
+            });
+            setContactId(ref.id); setIsQuickAddContact(false); setNewContactName(''); setNewContactPhone(''); setNewContactAddress('');
         } catch(e){alert('Error');}
         setLoading(false);
     };
@@ -498,11 +572,16 @@ const AddTransactionScreen = ({ contacts, inventoryItems, userId, preSelectedCon
                                 <button onClick={() => setIsQuickAddContact(true)} className="bg-blue-100 text-blue-600 px-4 rounded-xl text-2xl font-bold">+</button>
                             </>
                         ) : (
-                            <>
-                                <input autoFocus value={newContactName} onChange={e => setNewContactName(e.target.value)} className={`flex-1 p-4 border rounded-xl outline-none ${inputBg}`} placeholder="الاسم الجديد" />
-                                <button onClick={handleQuickContact} className="bg-blue-600 text-white px-4 rounded-xl font-bold">حفظ</button>
-                                <button onClick={() => setIsQuickAddContact(false)} className="bg-gray-200 text-gray-600 px-3 rounded-xl">X</button>
-                            </>
+                            <div className={`flex flex-col gap-2 p-3 rounded-xl border ${bg} animate-in fade-in w-full`}>
+                                <p className="text-xs font-bold text-blue-500">إضافة {type==='Sale'?'عميل':'مورد'} جديد</p>
+                                <input autoFocus value={newContactName} onChange={e => setNewContactName(e.target.value)} className={`w-full p-2 border rounded-lg text-sm ${inputBg}`} placeholder="الاسم" />
+                                <input value={newContactPhone} onChange={e => setNewContactPhone(e.target.value)} className={`w-full p-2 border rounded-lg text-sm ${inputBg}`} placeholder="الهاتف" type="tel" />
+                                <input value={newContactAddress} onChange={e => setNewContactAddress(e.target.value)} className={`w-full p-2 border rounded-lg text-sm ${inputBg}`} placeholder="العنوان" />
+                                <div className="flex gap-2">
+                                    <button onClick={handleQuickContact} className="flex-1 bg-blue-600 text-white py-2 rounded-lg font-bold text-sm">حفظ</button>
+                                    <button onClick={() => setIsQuickAddContact(false)} className="flex-1 bg-gray-200 text-gray-600 py-2 rounded-lg text-sm">إلغاء</button>
+                                </div>
+                            </div>
                         )}
                     </div>
                 </div>
@@ -589,6 +668,8 @@ const App = () => {
     const [darkMode, setDarkMode] = useState(false);
     const [notification, setNotification] = useState(null);
     const [isOffline, setIsOffline] = useState(!navigator.onLine);
+    // حالة جديدة للتحكم في تبويب العملاء والموردين
+    const [contactsTab, setContactsTab] = useState('Customer');
 
     useEffect(() => { localStorage.setItem('darkMode', darkMode); }, [darkMode]);
     useEffect(() => {
@@ -676,8 +757,16 @@ const App = () => {
                     </div>
                 )}
                 <div className={`flex-1 overflow-y-auto p-5 pb-24 ${darkMode ? 'bg-gray-900' : 'bg-gray-50/50'}`}>
-                    {screen === 'Dashboard' && <Dashboard summary={summary} onNavigate={setScreen} darkMode={darkMode} />}
-                    {screen === 'Contacts' && !selectedContact && <ContactsManagerScreen contacts={data.contacts} userId={user.uid} onSelectContact={(c) => setSelectedContact(c)} darkMode={darkMode} />}
+                    {screen === 'Dashboard' && <Dashboard summary={summary} onNavigateToContacts={(tab) => { setContactsTab(tab); setScreen('Contacts'); }} darkMode={darkMode} />}
+                    {screen === 'Contacts' && !selectedContact && (
+                        <ContactsManagerScreen 
+                            contacts={data.contacts} 
+                            userId={user.uid} 
+                            onSelectContact={(c) => setSelectedContact(c)} 
+                            darkMode={darkMode}
+                            initialTab={contactsTab} // تمرير التبويب المختار
+                        />
+                    )}
                     {screen === 'Contacts' && selectedContact && <ContactDetailsScreen contact={selectedContact} transactions={data.transactions} onBack={() => setSelectedContact(null)} onAddTransaction={() => setScreen('TransactionForm')} darkMode={darkMode} />}
                     {screen === 'TransactionForm' && <AddTransactionScreen contacts={data.contacts} inventoryItems={data.inventory} userId={user.uid} preSelectedContactId={selectedContact?.id} onClose={() => { setScreen(selectedContact ? 'Contacts' : 'Dashboard'); setTransactionToEdit(null); }} darkMode={darkMode} transactionToEdit={transactionToEdit} notify={notify} />}
                     {screen === 'Settings' && <SettingsScreen user={user} onLogout={() => signOut(auth)} darkMode={darkMode} toggleDarkMode={() => setDarkMode(!darkMode)} />}
