@@ -21,7 +21,6 @@ try {
     app = initializeApp(firebaseConfig);
     db = getFirestore(app);
     auth = getAuth(app);
-    // محاولة تفعيل العمل بدون إنترنت
     enableIndexedDbPersistence(db).catch((err) => console.log("Persistence:", err.code));
 } catch (error) {
     console.error("Firebase Init Error:", error);
@@ -45,12 +44,13 @@ const mapSnapshotToData = (snapshot) => {
 };
 
 const formatCurrency = (amount) => {
+    const val = safeMath(amount);
     return new Intl.NumberFormat('ar-EG', {
         style: 'currency',
         currency: 'EGP',
         minimumFractionDigits: 0,
         maximumFractionDigits: 0
-    }).format(amount || 0);
+    }).format(val);
 };
 
 const formatDate = (dateString) => {
@@ -162,17 +162,17 @@ const Dashboard = ({ summary, onNavigate, darkMode }) => (
                 <h2 className="text-5xl font-bold">{formatCurrency(summary.cash)}</h2>
             </div>
         </div>
-        <div className="grid grid-cols-2 gap-3">
-            <div className={`${darkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-blue-50'} p-5 rounded-2xl border flex flex-col justify-center items-center shadow-sm`}>
-                <span className="text-2xl mb-1">💰</span>
-                <p className={`text-xs ${darkMode ? 'text-gray-400' : 'text-gray-500'} mb-1`}>رأس المال المستثمر</p>
-                <p className="text-lg font-bold text-blue-600">{formatCurrency(summary.investedCapital)}</p>
+        <div className={`${darkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-blue-100'} p-5 rounded-2xl border flex justify-between items-center shadow-sm`}>
+            <div>
+                <p className={`text-sm ${darkMode ? 'text-gray-400' : 'text-gray-500'} mb-1`}>رأس المال المستثمر</p>
+                <p className="text-2xl font-bold text-blue-600">{formatCurrency(summary.investedCapital)}</p>
             </div>
-            <InfoCard title="مصروفات" value={formatCurrency(summary.tExpenses)} type="danger" icon="💸" darkMode={darkMode} />
+            <div className="text-4xl p-3 bg-blue-50 rounded-full">💰</div>
         </div>
         <div className="grid grid-cols-2 gap-3">
             <InfoCard title="مبيعات" value={formatCurrency(summary.tSales)} type="info" icon="🛒" darkMode={darkMode} />
             <InfoCard title="مشتريات" value={formatCurrency(summary.tPurchases)} type="warning" icon="🚚" darkMode={darkMode} />
+            <InfoCard title="مصروفات" value={formatCurrency(summary.tExpenses)} type="danger" icon="💸" darkMode={darkMode} />
         </div>
         <div className="grid grid-cols-2 gap-3">
             <InfoCard title="لي (عند العملاء)" value={formatCurrency(summary.owedToMe)} type="success" icon="📉" onClick={() => onNavigate('Contacts')} darkMode={darkMode} />
@@ -436,270 +436,7 @@ const AddTransactionScreen = ({ contacts, inventoryItems, userId, preSelectedCon
         setLoading(true);
         try {
             await runTransaction(db, async (t) => {
-                if (transactionToEdit) {
-                    if (transactionToEdit.items) {
-                        for (const i of transactionToEdit.items) {
-                            const ref = doc(db, 'inventory_items', i.itemId);
-                            const d = await t.get(ref);
-                            if(d.exists()) t.update(ref, { quantity: transactionToEdit.type === 'Sale' ? d.data().quantity + i.quantity : d.data().quantity - i.quantity });
-                        }
-                    }
-                    if (transactionToEdit.contactId) {
-                        const cRef = doc(db, 'contacts', transactionToEdit.contactId);
-                        const cDoc = await t.get(cRef);
-                        if(cDoc.exists()) {
-                            let rev = 0;
-                            if (transactionToEdit.type === 'Sale') rev = -transactionToEdit.creditAmount;
-                            if (transactionToEdit.type === 'Purchase') rev = transactionToEdit.creditAmount;
-                            if (transactionToEdit.type === 'Settlement') {
-                                const isCust = contacts.find(c => c.id === transactionToEdit.contactId)?.type === 'Customer';
-                                rev = isCust ? -transactionToEdit.amount : transactionToEdit.amount;
-                            }
-                            t.update(cRef, { balance: (cDoc.data().balance || 0) + rev });
-                        }
-                    }
-                    t.delete(doc(db, 'transactions', transactionToEdit.id));
-                }
-
-                const finalAmt = (type === 'Sale' || type === 'Purchase') ? safeMath(totalAmount) : safeMath(Number(amount));
-                const paidAmt = (type === 'Sale' || type === 'Purchase') ? safeMath(Number(paid) || 0) : finalAmt;
-                const cred = safeMath(finalAmt - paidAmt);
-                const contactName = contacts.find(c => c.id === contactId)?.name || null;
-
-                const ref = doc(collection(db, 'transactions'));
-                t.set(ref, {
-                    userId, type, contactId: contactId || null, contactName, amount: finalAmt, paidAmount: paidAmt, creditAmount: cred,
-                    date: new Date(txnDate).toISOString(), description: description || type,
-                    items: (type === 'Sale' || type === 'Purchase') ? items.map(i => ({ itemId: i.id, name: i.name, unit: i.unit, quantity: i.qty, price: i.price })) : null
-                });
-
-                if (type === 'Sale' || type === 'Purchase') {
-                    for (const i of items) {
-                        if (i.isNew) {
-                            const newRef = doc(collection(db, 'inventory_items'));
-                            t.set(newRef, { userId, name: i.name, unit: i.unit, quantity: type==='Sale' ? -i.qty : i.qty, lastPurchasePrice: i.price, createdAt: new Date().toISOString() });
-                        } else {
-                            const d = await t.get(doc(db, 'inventory_items', i.id));
-                            if(d.exists()) t.update(d.ref, { quantity: type === 'Sale' ? d.data().quantity - i.qty : d.data().quantity + i.qty });
-                        }
-                    }
-                }
-
-                if (contactId) {
-                    const cRef = doc(db, 'contacts', contactId);
-                    const cDoc = await t.get(cRef);
-                    let change = 0;
-                    if (type === 'Sale') change = cred; 
-                    if (type === 'Purchase') change = -cred;
-                    if (type === 'Settlement') {
-                        const isCust = contacts.find(c => c.id === contactId)?.type === 'Customer';
-                        change = isCust ? finalAmt : -finalAmt;
-                    }
-                    t.update(cRef, { balance: (cDoc.data().balance || 0) + change });
-                }
-            });
-            onClose();
-            notify('تم الحفظ بنجاح', 'success');
-        } catch (e) { console.error(e); alert('Error: ' + e.message); } finally { setLoading(false); }
-    };
-
-    return (
-        <div className="space-y-5">
-            {!transactionToEdit && (
-                <div className={`flex p-1 rounded-2xl overflow-x-auto ${darkMode ? 'bg-gray-700' : 'bg-gray-100'}`}>
-                    {['Sale', 'Purchase', 'Settlement', 'Expense', 'Capital'].map(t => (
-                        <button key={t} onClick={() => setType(t)} className={`flex-1 py-2 min-w-[60px] text-xs font-bold rounded-xl ${type === t ? 'bg-white shadow text-blue-600' : 'text-gray-500'}`}>
-                            {t === 'Sale' ? 'بيع' : t === 'Purchase' ? 'شراء' : t === 'Settlement' ? 'سداد' : t === 'Expense' ? 'مصروف' : 'رأس مال'}
-                        </button>
-                    ))}
-                </div>
-            )}
-            <div className={`p-3 rounded-xl border flex justify-between items-center ${bg}`}>
-                <label className="text-sm font-bold text-gray-500">التاريخ:</label>
-                <input type="date" value={txnDate} onChange={e => setTxnDate(e.target.value)} className={`p-2 rounded-lg outline-none ${inputBg}`} />
-            </div>
-
-            {(type === 'Sale' || type === 'Purchase' || type === 'Settlement') && (
-                <div className="space-y-1">
-                    <label className="text-xs text-gray-500 pr-2">العميل / المورد</label>
-                    <div className="flex gap-2">
-                        {!isQuickAddContact ? (
-                            <>
-                                <select value={contactId} onChange={e => setContactId(e.target.value)} className={`flex-1 p-4 border rounded-xl shadow-sm outline-none ${inputBg}`} disabled={!!preSelectedContactId}>
-                                    <option value="">اختر...</option>
-                                    {activeContacts.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                                </select>
-                                <button onClick={() => setIsQuickAddContact(true)} className="bg-blue-100 text-blue-600 px-4 rounded-xl text-2xl font-bold">+</button>
-                            </>
-                        ) : (
-                            <>
-                                <input autoFocus value={newContactName} onChange={e => setNewContactName(e.target.value)} className={`flex-1 p-4 border rounded-xl outline-none ${inputBg}`} placeholder="الاسم الجديد" />
-                                <button onClick={handleQuickContact} className="bg-blue-600 text-white px-4 rounded-xl font-bold">حفظ</button>
-                                <button onClick={() => setIsQuickAddContact(false)} className="bg-gray-200 text-gray-600 px-3 rounded-xl">X</button>
-                            </>
-                        )}
-                    </div>
-                </div>
-            )}
-
-            {(type === 'Sale' || type === 'Purchase') ? (
-                <>
-                    <div className={`${bg} p-4 rounded-2xl border space-y-3`}>
-                        <p className={`text-sm font-bold ${darkMode ? 'text-gray-300' : 'text-gray-700'}`}>الأصناف</p>
-                        
-                        <div className="flex gap-2">
-                            <input 
-                                list="items-list"
-                                value={itemName} 
-                                onChange={e => { 
-                                    const val = e.target.value;
-                                    setItemName(val);
-                                    const exist = inventoryItems.find(i => i.name === val);
-                                    if (exist) {
-                                         setPrice(type==='Sale'? exist.lastPurchasePrice*1.2 : exist.lastPurchasePrice);
-                                         setUnit(exist.unit || 'قطعة');
-                                    }
-                                }} 
-                                placeholder="اسم الصنف" 
-                                className={`flex-[2] p-3 border rounded-xl text-sm ${inputBg}`} 
-                            />
-                            <datalist id="items-list">{inventoryItems.map(i => <option key={i.id} value={i.name} />)}</datalist>
-                            
-                            <input 
-                                type="text" 
-                                value={unit} 
-                                onChange={e => setUnit(e.target.value)} 
-                                placeholder="الوحدة" 
-                                className={`flex-1 p-3 border rounded-xl text-sm text-center ${inputBg}`} 
-                            />
-                        </div>
-
-                        <div className="flex gap-2">
-                            <input type="number" value={qty} onChange={e => setQty(e.target.value)} placeholder="العدد" className={`flex-1 p-3 border rounded-xl text-center ${inputBg}`} />
-                            <input type="number" value={price} onChange={e => setPrice(e.target.value)} placeholder="السعر" className={`flex-[2] p-3 border rounded-xl text-center ${inputBg}`} />
-                            <button onClick={addItem} className="flex-1 bg-blue-600 text-white rounded-xl font-bold shadow-md">أضف</button>
-                        </div>
-                    </div>
-                    {items.map((i, idx) => (
-                        <div key={idx} className={`flex justify-between p-3 border-b ${darkMode ? 'border-gray-700' : 'border-gray-100'}`}>
-                            <span className={darkMode ? 'text-white' : 'text-gray-900'}>{i.name} <span className="text-xs text-gray-500">({i.qty} {i.unit} × {i.price})</span> {i.isNew && <span className="text-xs text-green-500">(جديد)</span>}</span>
-                            <div className="flex gap-3">
-                                <span className="font-bold text-gray-500">{formatCurrency(i.subtotal)}</span>
-                                <button onClick={() => setItems(items.filter((_, x) => x !== idx))} className="text-red-500 font-bold">x</button>
-                            </div>
-                        </div>
-                    ))}
-                    <div className={`p-4 rounded-xl border ${bg} space-y-3`}>
-                        <div className="flex justify-between font-bold mb-2 text-lg"><span className="text-gray-500">الإجمالي:</span><span className="text-blue-600">{formatCurrency(totalAmount)}</span></div>
-                        <div className="flex items-center gap-2"><span className="text-sm text-gray-500">المدفوع:</span><input type="number" value={paid} onChange={e => setPaid(e.target.value)} className="flex-1 p-2 border-b outline-none bg-transparent font-bold text-green-600" placeholder="0" /></div>
-                        <div className="flex justify-between text-sm pt-2 border-t border-dashed">
-                            <span className="text-gray-500">متبقي (آجل):</span>
-                            <span className="font-bold text-red-600">{formatCurrency(safeMath(totalAmount - (Number(paid)||0)))}</span>
-                        </div>
-                    </div>
-                </>
-            ) : (
-                <div className={`${bg} p-4 rounded-xl border`}>
-                    <label className="text-xs text-gray-500 block mb-1">المبلغ</label>
-                    <input type="number" value={amount} onChange={e => setAmount(e.target.value)} className={`w-full p-3 border rounded-xl text-xl font-bold text-center outline-none ${inputBg}`} placeholder="0.00" autoFocus />
-                    <input type="text" value={description} onChange={e => setDescription(e.target.value)} className={`w-full p-3 mt-3 border rounded-xl outline-none ${inputBg}`} placeholder="بيان..." />
-                </div>
-            )}
-
-            <div className="flex gap-3 pt-4 pb-8">
-                <div className="flex-[2]"><MobileButton onClick={save} disabled={loading}>{loading ? 'جارٍ الحفظ...' : 'حفظ'}</MobileButton></div>
-                <MobileButton onClick={onClose} color="bg-gray-500" outline full={false}>إلغاء</MobileButton>
-            </div>
-        </div>
-    );
-};
-
-const Dashboard = ({ summary, onNavigate, darkMode }) => (
-    <div className="space-y-6 animate-in fade-in">
-        <div className="flex justify-between px-2 items-center">
-            <h2 className={`font-bold text-xl ${darkMode ? 'text-white' : 'text-gray-800'}`}>لوحة التحكم</h2>
-            <span className="text-[10px] bg-blue-50 text-blue-600 px-2 py-1 rounded-lg font-bold border border-blue-100">أ/ خالد إسماعيل</span>
-        </div>
-        <div className="bg-gradient-to-br from-blue-600 to-blue-800 p-6 rounded-3xl text-white shadow-xl relative overflow-hidden">
-            <div className="absolute top-0 right-0 w-40 h-40 bg-white/10 rounded-full -mr-10 -mt-10 blur-2xl"></div>
-            <div className="relative z-10">
-                <p className="text-blue-100 mb-1 text-sm">السيولة النقدية</p>
-                <h2 className="text-5xl font-bold">{formatCurrency(summary.cash)}</h2>
-            </div>
-        </div>
-        <div className="grid grid-cols-2 gap-3">
-            <div className={`${darkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-blue-50'} p-4 rounded-2xl border flex flex-col justify-center items-center shadow-sm`}>
-                <span className="text-2xl mb-1">💰</span>
-                <p className="text-xs text-gray-400 mb-1">رأس المال المستثمر</p>
-                <p className="text-lg font-bold text-blue-600">{formatCurrency(summary.investedCapital)}</p>
-            </div>
-            <InfoCard title="مصروفات" value={formatCurrency(summary.tExpenses)} type="danger" icon="💸" darkMode={darkMode} />
-        </div>
-        <div className="grid grid-cols-2 gap-3">
-            <InfoCard title="مبيعات" value={formatCurrency(summary.tSales)} type="info" icon="🛒" darkMode={darkMode} />
-            <InfoCard title="مشتريات" value={formatCurrency(summary.tPurchases)} type="warning" icon="🚚" darkMode={darkMode} />
-        </div>
-        <div className="grid grid-cols-2 gap-3">
-            <InfoCard title="لي (عند العملاء)" value={formatCurrency(summary.owedToMe)} type="success" icon="📉" onClick={() => onNavigate('Contacts')} darkMode={darkMode} />
-            <InfoCard title="علي (للموردين)" value={formatCurrency(summary.iOwe)} type="danger" icon="📈" onClick={() => onNavigate('Contacts')} darkMode={darkMode} />
-        </div>
-    </div>
-);
-
-const App = () => {
-    const [user, setUser] = useState(null);
-    const [screen, setScreen] = useState('Dashboard');
-    const [selectedContact, setSelectedContact] = useState(null);
-    const [transactionToEdit, setTransactionToEdit] = useState(null);
-    const [data, setData] = useState({ contacts: [], transactions: [], inventory: [] });
-    const [darkMode, setDarkMode] = useState(false);
-    const [notification, setNotification] = useState(null);
-    const [isOffline, setIsOffline] = useState(!navigator.onLine);
-
-    useEffect(() => { localStorage.setItem('darkMode', darkMode); }, [darkMode]);
-    useEffect(() => {
-        const h = () => setIsOffline(!navigator.onLine);
-        window.addEventListener('online', h); window.addEventListener('offline', h);
-        return () => { window.removeEventListener('online', h); window.removeEventListener('offline', h); };
-    }, []);
-    
-    const notify = (message, type = 'success') => setNotification({ message, type });
-
-    useEffect(() => {
-        if (!auth) return;
-        return onAuthStateChanged(auth, u => setUser(u));
-    }, []);
-
-    useEffect(() => {
-        if (!user) return;
-        const q = (col) => query(collection(db, col), where('userId', '==', user.uid));
-        const un1 = onSnapshot(q('contacts'), s => setData(d => ({ ...d, contacts: mapSnapshotToData(s) })));
-        const un2 = onSnapshot(q('transactions'), s => setData(d => ({ ...d, transactions: mapSnapshotToData(s) })));
-        const un3 = onSnapshot(q('inventory_items'), s => setData(d => ({ ...d, inventory: mapSnapshotToData(s) })));
-        return () => { un1(); un2(); un3(); };
-    }, [user]);
-
-    const summary = useMemo(() => {
-        let owedToMe = 0, iOwe = 0, cash = 0, tSales = 0, tPurchases = 0, tExpenses = 0, investedCapital = 0;
-        data.contacts.forEach(c => { if (c.balance > 0) owedToMe += c.balance; if (c.balance < 0) iOwe += Math.abs(c.balance); });
-        data.transactions.forEach(t => {
-            const amt = safeMath(t.amount); const paid = safeMath(t.paidAmount);
-            if (t.type === 'Sale') { cash += paid; tSales += amt; }
-            if (t.type === 'Purchase') { cash -= paid; tPurchases += amt; }
-            if (t.type === 'Expense') { cash -= amt; tExpenses += amt; }
-            if (t.type === 'Capital') { cash += amt; investedCapital += amt; }
-            if (t.type === 'Settlement') {
-                const contact = data.contacts.find(x => x.id === t.contactId);
-                if (contact) { if (contact.type === 'Customer') cash += amt; else cash -= amt; }
-            }
-        });
-        return { owedToMe, iOwe, cash, tSales, tPurchases, tExpenses, investedCapital };
-    }, [data]);
-
-    const handleDelete = async (t) => {
-        if (!window.confirm('حذف نهائي؟')) return;
-        try {
-            await runTransaction(db, async (tr) => {
+                // 1. READS
                 const readOps = [];
                 if (t.items) t.items.forEach(i => readOps.push(doc(db, 'inventory_items', i.itemId)));
                 if (t.contactId) readOps.push(doc(db, 'contacts', t.contactId));
@@ -707,6 +444,7 @@ const App = () => {
                 const invMap = new Map(snaps.filter(s => s.ref.path.includes('inventory')).map(s => [s.id, s]));
                 const contactSnap = snaps.find(s => s.ref.path.includes('contacts'));
 
+                // 2. WRITES
                 if (t.items) {
                     t.items.forEach(i => {
                         const d = invMap.get(i.itemId);
@@ -717,7 +455,7 @@ const App = () => {
                     let rev = 0;
                     if(t.type==='Sale') rev = -t.creditAmount;
                     if(t.type==='Purchase') rev = t.creditAmount;
-                    if(t.type==='Settlement') { const isCust = data.contacts.find(c=>c.id===t.contactId)?.type==='Customer'; rev = t.amount : -t.amount; }
+                    if(t.type==='Settlement') { const isCust = data.contacts.find(c=>c.id===t.contactId)?.type==='Customer'; rev = isCust ? t.amount : -t.amount; }
                     tr.update(contactSnap.ref, { balance: (contactSnap.data().balance||0) + rev });
                 }
                 tr.delete(doc(db, 'transactions', t.id));
@@ -751,7 +489,7 @@ const App = () => {
                     {screen === 'Inventory' && <InventoryManagement inventoryItems={data.inventory} darkMode={darkMode} />}
                 </div>
                 <div className="absolute bottom-0 w-full z-20">
-                    <div className={`text-center py-1 border-t text-[9px] font-mono ${darkMode ? 'bg-gray-800 border-gray-700' : 'bg-gray-100 border-gray-200 text-gray-400'}`}>Dev: acc-aymanalaa | 01272725354</div>
+                    <div className={`text-center py-1 border-t text-[9px] font-mono ${darkMode ? 'bg-gray-800 border-gray-700 text-gray-500' : 'bg-gray-100 border-gray-200 text-gray-400'}`}>Dev: acc-aymanalaa | 01272725354</div>
                     <div className={`border-t flex justify-around items-end pb-4 pt-2 px-2 shadow-[0_-5px_20px_rgba(0,0,0,0.05)] ${darkMode ? 'bg-gray-900 border-gray-800' : 'bg-white'}`}>
                         <button onClick={() => setScreen('Dashboard')} className={`flex flex-col items-center w-16 ${screen === 'Dashboard' ? 'text-blue-600' : 'text-gray-400 hover:text-blue-600'}`}><span className="text-2xl mb-1">🏠</span><span className="text-[10px] font-bold">الرئيسية</span></button>
                         <button onClick={() => setScreen('Contacts')} className={`flex flex-col items-center w-16 ${screen === 'Contacts' ? 'text-blue-600' : 'text-gray-400 hover:text-blue-600'}`}><span className="text-2xl mb-1">👥</span><span className="text-[10px] font-bold">العملاء</span></button>
