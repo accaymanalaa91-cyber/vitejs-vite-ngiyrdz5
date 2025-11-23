@@ -45,13 +45,12 @@ const mapSnapshotToData = (snapshot) => {
 };
 
 const formatCurrency = (amount) => {
-    const val = safeMath(amount);
     return new Intl.NumberFormat('ar-EG', {
         style: 'currency',
         currency: 'EGP',
         minimumFractionDigits: 0,
         maximumFractionDigits: 0
-    }).format(val);
+    }).format(amount || 0);
 };
 
 const formatDate = (dateString) => {
@@ -92,7 +91,7 @@ const MobileButton = ({ children, onClick, color = 'bg-blue-600', outline = fals
     </button>
 );
 
-const InfoCard = ({ title, value, subValue, icon, type = 'neutral', onClick, darkMode }) => {
+const InfoCard = ({ title, value, icon, type = 'neutral', onClick, darkMode }) => {
     const bg = darkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-100';
     const colors = {
         neutral: darkMode ? 'text-gray-200' : 'text-gray-800',
@@ -106,7 +105,6 @@ const InfoCard = ({ title, value, subValue, icon, type = 'neutral', onClick, dar
             <div>
                 <p className={`text-xs mb-1 ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>{title}</p>
                 <p className={`text-xl font-bold ${colors[type]}`}>{value}</p>
-                {subValue && <p className="text-xs text-gray-400 mt-1">{subValue}</p>}
             </div>
             {icon && <div className={`p-3 rounded-full shadow-sm text-2xl ${darkMode ? 'bg-gray-700 text-white' : 'bg-white'}`}>{icon}</div>}
         </div>
@@ -150,6 +148,38 @@ const LoginScreen = () => {
         </div>
     );
 };
+
+const Dashboard = ({ summary, onNavigate, darkMode }) => (
+    <div className="space-y-5 animate-in fade-in">
+        <div className="flex justify-between px-2 items-center">
+            <h2 className={`font-bold text-xl ${darkMode ? 'text-white' : 'text-gray-800'}`}>لوحة التحكم</h2>
+            <span className="text-[10px] bg-blue-50 text-blue-600 px-2 py-1 rounded-lg font-bold border border-blue-100">أ/ خالد إسماعيل</span>
+        </div>
+        <div className="bg-gradient-to-br from-blue-600 to-blue-800 p-6 rounded-3xl text-white shadow-xl relative overflow-hidden">
+            <div className="absolute top-0 right-0 w-40 h-40 bg-white/10 rounded-full -mr-10 -mt-10 blur-2xl"></div>
+            <div className="relative z-10 text-center">
+                <p className="text-blue-100 mb-2 text-sm">النقدية المتاحة</p>
+                <h2 className="text-5xl font-bold">{formatCurrency(summary.cash)}</h2>
+            </div>
+        </div>
+        <div className={`${darkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-blue-100'} p-5 rounded-2xl border flex justify-between items-center shadow-sm`}>
+            <div>
+                <p className={`text-sm ${darkMode ? 'text-gray-400' : 'text-gray-500'} mb-1`}>رأس المال المستثمر</p>
+                <p className="text-2xl font-bold text-blue-600">{formatCurrency(summary.investedCapital)}</p>
+            </div>
+            <div className="text-4xl p-3 bg-blue-50 rounded-full">💰</div>
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+            <InfoCard title="مبيعات" value={formatCurrency(summary.tSales)} type="info" icon="🛒" darkMode={darkMode} />
+            <InfoCard title="مشتريات" value={formatCurrency(summary.tPurchases)} type="warning" icon="🚚" darkMode={darkMode} />
+            <InfoCard title="مصروفات" value={formatCurrency(summary.tExpenses)} type="danger" icon="💸" darkMode={darkMode} />
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+            <InfoCard title="لي (عند العملاء)" value={formatCurrency(summary.owedToMe)} type="success" icon="📉" onClick={() => onNavigate('Contacts')} darkMode={darkMode} />
+            <InfoCard title="علي (للموردين)" value={formatCurrency(summary.iOwe)} type="danger" icon="📈" onClick={() => onNavigate('Contacts')} darkMode={darkMode} />
+        </div>
+    </div>
+);
 
 const HistoryScreen = ({ transactions, darkMode, onEditTransaction, onDeleteTransaction }) => {
     const [search, setSearch] = useState('');
@@ -205,7 +235,8 @@ const SettingsScreen = ({ user, onLogout, darkMode, toggleDarkMode }) => {
         <div className="space-y-5 animate-in fade-in">
             <div className={`${cardClass} p-6 rounded-3xl shadow-sm border flex flex-col items-center`}>
                 <h2 className={`font-bold text-lg ${textMain}`}>{user.displayName}</h2>
-                <MobileButton onClick={onLogout} color="bg-red-50 text-red-600" outline full={false} small>خروج</MobileButton>
+                <p className="text-xs text-gray-500 mb-4">{user.email}</p>
+                <MobileButton onClick={onLogout} color="bg-red-50 text-red-600" outline full={false} small>تسجيل الخروج</MobileButton>
             </div>
             <div className={`${cardClass} rounded-2xl border shadow-sm p-4 flex justify-between cursor-pointer`} onClick={toggleDarkMode}>
                 <span className={`text-sm font-bold ${textMain}`}>الوضع الليلي</span>
@@ -219,17 +250,35 @@ const ContactDetailsScreen = ({ contact, transactions, onBack, onAddTransaction,
     const contactTransactions = useMemo(() => transactions.filter(t => t.contactId === contact.id), [transactions, contact]);
     const bg = darkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-100';
     const text = darkMode ? 'text-gray-200' : 'text-gray-800';
+    const textSub = darkMode ? 'text-gray-400' : 'text-gray-600';
+
     return (
         <div className="space-y-4 animate-in slide-in-from-bottom-4">
             <div className={`flex items-center gap-3 pb-2 border-b ${darkMode ? 'border-gray-700' : 'border-gray-100'}`}>
                 <button onClick={onBack} className="p-2 rounded-full text-xl">➜</button>
                 <h2 className={`text-xl font-bold ${text}`}>{contact.name}</h2>
             </div>
-            <div className={`p-6 rounded-3xl text-white shadow-lg ${contact.balance > 0 ? 'bg-green-600' : contact.balance < 0 ? 'bg-red-600' : 'bg-gray-500'}`}>
-                <p className="text-white/80 text-sm mb-1">الرصيد</p>
-                <h3 className="text-4xl font-bold">{formatCurrency(Math.abs(contact.balance))}</h3>
-                <span className="text-xs">{contact.balance > 0 ? 'له (دائن)' : contact.balance < 0 ? 'عليه (مدين)' : 'خالص'}</span>
+            
+            {/* بيانات الاتصال */}
+            <div className={`${bg} p-3 rounded-xl border text-sm`}>
+                <div className="flex justify-between items-center mb-1">
+                    <span className={textSub}>الهاتف:</span>
+                    <span className={`font-bold ${text}`} dir="ltr">{contact.phone || '-'}</span>
+                </div>
+                <div className="flex justify-between items-center">
+                    <span className={textSub}>العنوان:</span>
+                    <span className={`font-bold ${text}`}>{contact.address || '-'}</span>
+                </div>
             </div>
+
+            <div className={`p-6 rounded-3xl text-white shadow-lg ${contact.balance > 0 ? 'bg-green-600' : contact.balance < 0 ? 'bg-red-600' : 'bg-gray-500'}`}>
+                <p className="text-white/80 text-sm mb-1">الرصيد المستحق</p>
+                <div className="flex justify-between items-end">
+                    <h3 className="text-4xl font-bold">{formatCurrency(Math.abs(contact.balance))}</h3>
+                    <span className="bg-white/20 px-3 py-1 rounded-lg text-sm">{contact.balance > 0 ? 'له' : contact.balance < 0 ? 'عليه' : 'خالص'}</span>
+                </div>
+            </div>
+            
             <div className="space-y-3">
                 {contactTransactions.map(t => (
                     <div key={t.id} className={`${bg} p-3 rounded-xl border shadow-sm flex justify-between items-center`}>
@@ -250,13 +299,27 @@ const ContactsManagerScreen = ({ contacts, userId, onSelectContact, darkMode }) 
     const [activeTab, setActiveTab] = useState('Customer');
     const [showAddForm, setShowAddForm] = useState(false);
     const [newName, setNewName] = useState('');
+    const [newPhone, setNewPhone] = useState('');
+    const [newAddress, setNewAddress] = useState('');
     const bg = darkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-100';
     const text = darkMode ? 'text-white' : 'text-gray-900';
+    const inputBg = darkMode ? 'bg-gray-700 text-white border-gray-600' : 'bg-white text-gray-900 border-gray-200';
 
     const handleAdd = async (e) => {
         e.preventDefault();
         if (!newName) return;
-        try { await addDoc(collection(db, 'contacts'), { userId, name: newName, type: activeTab, balance: 0 }); setNewName(''); setShowAddForm(false); } catch (e) { alert(e.message); }
+        try { 
+            await addDoc(collection(db, 'contacts'), { 
+                userId, 
+                name: newName, 
+                phone: newPhone,
+                address: newAddress,
+                type: activeTab, 
+                balance: 0, 
+                createdAt: new Date().toISOString() 
+            }); 
+            setNewName(''); setNewPhone(''); setNewAddress(''); setShowAddForm(false); 
+        } catch (e) { alert(e.message); }
     };
 
     const filtered = contacts.filter(c => c.type === activeTab);
@@ -266,8 +329,20 @@ const ContactsManagerScreen = ({ contacts, userId, onSelectContact, darkMode }) 
                 <button onClick={() => setActiveTab('Customer')} className={`flex-1 py-2 rounded-xl font-bold text-sm ${activeTab === 'Customer' ? 'bg-white shadow text-blue-600' : 'text-gray-500'}`}>العملاء</button>
                 <button onClick={() => setActiveTab('Supplier')} className={`flex-1 py-2 rounded-xl font-bold text-sm ${activeTab === 'Supplier' ? 'bg-white shadow text-orange-600' : 'text-gray-500'}`}>الموردين</button>
             </div>
-            {!showAddForm ? <button onClick={() => setShowAddForm(true)} className="w-full py-3 border-2 border-dashed rounded-xl font-bold text-gray-400">+ إضافة</button> : 
-            <form onSubmit={handleAdd} className={`${bg} p-4 rounded-xl border space-y-3`}><input value={newName} onChange={e => setNewName(e.target.value)} className="w-full p-2 rounded border text-black" placeholder="الاسم" /><MobileButton type="submit">حفظ</MobileButton></form>}
+            {!showAddForm ? (
+                <button onClick={() => setShowAddForm(true)} className={`w-full py-3 border-2 border-dashed rounded-xl font-bold ${darkMode ? 'border-gray-600 text-gray-400' : 'border-gray-300 text-gray-500'}`}>+ إضافة {activeTab === 'Customer' ? 'عميل' : 'مورد'}</button>
+            ) : (
+                <form onSubmit={handleAdd} className={`${bg} p-4 rounded-xl border space-y-3 animate-in fade-in`}>
+                    <h3 className={`font-bold text-sm mb-2 ${text}`}>بيانات {activeTab === 'Customer' ? 'العميل' : 'المورد'} الجديد</h3>
+                    <input value={newName} onChange={e => setNewName(e.target.value)} className={`w-full p-2 rounded border ${inputBg}`} placeholder="الاسم" autoFocus />
+                    <input value={newPhone} onChange={e => setNewPhone(e.target.value)} className={`w-full p-2 rounded border ${inputBg}`} placeholder="رقم الهاتف" type="tel" />
+                    <input value={newAddress} onChange={e => setNewAddress(e.target.value)} className={`w-full p-2 rounded border ${inputBg}`} placeholder="العنوان" />
+                    <div className="flex gap-2 pt-2">
+                        <MobileButton onClick={() => setShowAddForm(false)} color="bg-gray-500" full={false}>إلغاء</MobileButton>
+                        <div className="flex-1"><MobileButton type="submit">حفظ</MobileButton></div>
+                    </div>
+                </form>
+            )}
             <div className="space-y-2 pb-20">
                 {filtered.map(c => (
                     <div key={c.id} onClick={() => onSelectContact(c)} className={`${bg} p-4 rounded-2xl border shadow-sm flex justify-between cursor-pointer`}>
@@ -494,7 +569,7 @@ const AddTransactionScreen = ({ contacts, inventoryItems, userId, preSelectedCon
                                 type="text" 
                                 value={unit} 
                                 onChange={e => setUnit(e.target.value)} 
-                                placeholder="وحدة" 
+                                placeholder="الوحدة" 
                                 className={`flex-1 p-3 border rounded-xl text-sm text-center ${inputBg}`} 
                             />
                         </div>
@@ -552,14 +627,17 @@ const Dashboard = ({ summary, onNavigate, darkMode }) => (
                 <h2 className="text-5xl font-bold">{formatCurrency(summary.cash)}</h2>
             </div>
         </div>
-        <div className={`${darkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-blue-50'} p-4 rounded-2xl border flex justify-between items-center`}>
-            <div><p className="text-xs text-gray-400 mb-1">رأس المال المستثمر</p><p className="text-xl font-bold text-blue-500">{formatCurrency(summary.investedCapital)}</p></div>
-            <div className="text-2xl">💰</div>
+        <div className="grid grid-cols-2 gap-3">
+            <div className={`${darkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-blue-50'} p-4 rounded-2xl border flex flex-col justify-center items-center shadow-sm`}>
+                <span className="text-2xl mb-1">💰</span>
+                <p className="text-xs text-gray-400 mb-1">رأس المال المستثمر</p>
+                <p className="text-lg font-bold text-blue-600">{formatCurrency(summary.investedCapital)}</p>
+            </div>
+            <InfoCard title="مصروفات" value={formatCurrency(summary.tExpenses)} type="danger" icon="💸" darkMode={darkMode} />
         </div>
         <div className="grid grid-cols-2 gap-3">
             <InfoCard title="مبيعات" value={formatCurrency(summary.tSales)} type="info" icon="🛒" darkMode={darkMode} />
             <InfoCard title="مشتريات" value={formatCurrency(summary.tPurchases)} type="warning" icon="🚚" darkMode={darkMode} />
-            <InfoCard title="مصروفات" value={formatCurrency(summary.tExpenses)} type="danger" icon="💸" darkMode={darkMode} />
         </div>
         <div className="grid grid-cols-2 gap-3">
             <InfoCard title="لي (عند العملاء)" value={formatCurrency(summary.owedToMe)} type="success" icon="📉" onClick={() => onNavigate('Contacts')} darkMode={darkMode} />
@@ -589,7 +667,7 @@ const App = () => {
 
     useEffect(() => {
         if (!auth) return;
-        return onAuthStateChanged(auth, u => { setUser(u); });
+        return onAuthStateChanged(auth, u => setUser(u));
     }, []);
 
     useEffect(() => {
@@ -675,7 +753,7 @@ const App = () => {
                     {screen === 'Inventory' && <InventoryManagement inventoryItems={data.inventory} darkMode={darkMode} />}
                 </div>
                 <div className="absolute bottom-0 w-full z-20">
-                    <div className={`text-center py-1 border-t text-[9px] font-mono ${darkMode ? 'bg-gray-800 border-gray-700 text-gray-500' : 'bg-gray-100 border-gray-200 text-gray-400'}`}>Dev: acc-aymanalaa | 01272725354</div>
+                    <div className={`text-center py-1 border-t text-[9px] font-mono ${darkMode ? 'bg-gray-800 border-gray-700' : 'bg-gray-100 border-gray-200 text-gray-400'}`}>Dev: acc-aymanalaa | 01272725354</div>
                     <div className={`border-t flex justify-around items-end pb-4 pt-2 px-2 shadow-[0_-5px_20px_rgba(0,0,0,0.05)] ${darkMode ? 'bg-gray-900 border-gray-800' : 'bg-white'}`}>
                         <button onClick={() => setScreen('Dashboard')} className={`flex flex-col items-center w-16 ${screen === 'Dashboard' ? 'text-blue-600' : 'text-gray-400 hover:text-blue-600'}`}><span className="text-2xl mb-1">🏠</span><span className="text-[10px] font-bold">الرئيسية</span></button>
                         <button onClick={() => setScreen('Contacts')} className={`flex flex-col items-center w-16 ${screen === 'Contacts' ? 'text-blue-600' : 'text-gray-400 hover:text-blue-600'}`}><span className="text-2xl mb-1">👥</span><span className="text-[10px] font-bold">العملاء</span></button>
