@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInWithPopup, GoogleAuthProvider, signOut, onAuthStateChanged } from 'firebase/auth';
-import { getFirestore, collection, query, onSnapshot, addDoc, doc, runTransaction, where, deleteDoc, getDoc, updateDoc, setDoc } from 'firebase/firestore';
+import { getFirestore, collection, query, onSnapshot, addDoc, doc, runTransaction, where, deleteDoc, getDoc, updateDoc, setDoc, enableIndexedDbPersistence } from 'firebase/firestore';
 
 // ------------------------------------------------------------------
 // 1. إعدادات Firebase
@@ -15,21 +15,21 @@ const firebaseConfig = {
   appId: "1:730372364290:web:014e9fd1566f178d926f1b"
 };
 
-// تهيئة التطبيق بشكل آمن
+// تهيئة التطبيق
 let app, db, auth;
 try {
     app = initializeApp(firebaseConfig);
     db = getFirestore(app);
     auth = getAuth(app);
+    enableIndexedDbPersistence(db).catch((err) => console.log("Persistence:", err.code));
 } catch (error) {
-    console.error("Error initializing Firebase:", error);
+    console.error("Firebase Init Error:", error);
 }
 
 // ------------------------------------------------------------------
-// 2. دوال مساعدة (Helpers)
+// 2. دوال مساعدة
 // ------------------------------------------------------------------
 
-// دالة لتقريب الأرقام وتفادي الكسور الطويلة
 const safeMath = (num) => Math.round((Number(num || 0) + Number.EPSILON) * 100) / 100;
 
 const mapSnapshotToData = (snapshot) => {
@@ -37,7 +37,6 @@ const mapSnapshotToData = (snapshot) => {
     snapshot.forEach((doc) => {
         data.push({ id: doc.id, ...doc.data() });
     });
-    // ترتيب تنازلي بالتاريخ
     if (data.length > 0 && data[0].date) {
         data.sort((a, b) => new Date(b.date) - new Date(a.date));
     }
@@ -72,7 +71,7 @@ const NotificationToast = ({ notification, onClose }) => {
     useEffect(() => { const t = setTimeout(onClose, 3000); return () => clearTimeout(t); }, [notification, onClose]);
     return (
         <div className={`fixed top-6 left-1/2 transform -translate-x-1/2 z-50 w-11/12 max-w-md p-4 rounded-xl shadow-2xl flex items-center justify-between transition-all ${notification.type === 'error' ? 'bg-red-600' : 'bg-green-600'} text-white`} dir="rtl">
-            <span className="font-bold text-sm">{notification.message}</span>
+            <span className="font-bold text-sm">{String(notification.message)}</span>
             <button onClick={onClose} className="text-white font-bold px-2">&times;</button>
         </div>
     );
@@ -92,7 +91,7 @@ const MobileButton = ({ children, onClick, color = 'bg-blue-600', outline = fals
     </button>
 );
 
-const InfoCard = ({ title, value, subValue, icon, type = 'neutral', onClick, darkMode }) => {
+const InfoCard = ({ title, value, icon, type = 'neutral', darkMode }) => {
     const bg = darkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-100';
     const colors = {
         neutral: darkMode ? 'text-gray-200' : 'text-gray-800',
@@ -102,11 +101,10 @@ const InfoCard = ({ title, value, subValue, icon, type = 'neutral', onClick, dar
         warning: darkMode ? 'text-orange-400' : 'text-orange-700'
     };
     return (
-        <div onClick={onClick} className={`p-4 rounded-2xl border shadow-sm flex items-center justify-between ${bg} ${onClick ? 'active:opacity-80 cursor-pointer' : ''}`}>
+        <div className={`p-4 rounded-2xl border shadow-sm flex items-center justify-between ${bg}`}>
             <div>
                 <p className={`text-xs mb-1 ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>{title}</p>
                 <p className={`text-xl font-bold ${colors[type]}`}>{value}</p>
-                {subValue && <p className="text-xs text-gray-400 mt-1">{subValue}</p>}
             </div>
             {icon && <div className={`p-3 rounded-full shadow-sm text-2xl ${darkMode ? 'bg-gray-700 text-white' : 'bg-white'}`}>{icon}</div>}
         </div>
@@ -147,13 +145,51 @@ const LoginScreen = () => {
             <div className="w-full max-w-xs">
                 <MobileButton onClick={handleLogin}>تسجيل الدخول بواسطة جوجل</MobileButton>
             </div>
-            <div className="absolute bottom-6 text-center opacity-60">
-                <p className="text-[10px] text-gray-400 uppercase tracking-wider mb-1">Designed By</p>
-                <div className="text-xs font-bold text-gray-600" dir="ltr">acc-aymanalaa | 01272725354</div>
-            </div>
         </div>
     );
 };
+
+const Dashboard = ({ summary, darkMode }) => (
+    <div className="space-y-5 animate-in fade-in">
+        <div className="flex justify-between px-2 items-center">
+            <h2 className={`font-bold text-xl ${darkMode ? 'text-white' : 'text-gray-800'}`}>لوحة التحكم</h2>
+            <span className="text-[10px] bg-blue-50 text-blue-600 px-2 py-1 rounded-lg font-bold border border-blue-100">أ/ خالد إسماعيل</span>
+        </div>
+
+        {/* 1. السيولة النقدية (الكاش) */}
+        <div className="bg-gradient-to-br from-blue-600 to-blue-800 p-6 rounded-3xl text-white shadow-xl relative overflow-hidden">
+            <div className="absolute top-0 right-0 w-40 h-40 bg-white/10 rounded-full -mr-10 -mt-10 blur-2xl"></div>
+            <div className="relative z-10 text-center">
+                <p className="text-blue-100 mb-2 text-sm">النقدية المتاحة (الكاش)</p>
+                <h2 className="text-5xl font-bold">{formatCurrency(summary.cash)}</h2>
+            </div>
+        </div>
+
+        {/* 2. رأس المال المستثمر */}
+        <div className={`${darkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-blue-100'} p-5 rounded-2xl border flex justify-between items-center shadow-sm`}>
+            <div>
+                <p className={`text-sm ${darkMode ? 'text-gray-400' : 'text-gray-500'} mb-1`}>رأس المال المستثمر</p>
+                <p className="text-2xl font-bold text-blue-600">{formatCurrency(summary.investedCapital)}</p>
+            </div>
+            <div className="text-4xl p-3 bg-blue-50 rounded-full">💰</div>
+        </div>
+
+        {/* 3. ملخص النشاط التجاري (مبيعات - مشتريات - مصاريف) */}
+        <div className="grid grid-cols-2 gap-3">
+            <InfoCard title="إجمالي المبيعات" value={formatCurrency(summary.tSales)} type="info" icon="🛒" darkMode={darkMode} />
+            <InfoCard title="إجمالي المشتريات" value={formatCurrency(summary.tPurchases)} type="warning" icon="🚚" darkMode={darkMode} />
+            <div className="col-span-2">
+                <InfoCard title="إجمالي المصروفات" value={formatCurrency(summary.tExpenses)} type="danger" icon="💸" darkMode={darkMode} />
+            </div>
+        </div>
+
+        {/* 4. الأرصدة والديون (لي وعلي) */}
+        <div className="grid grid-cols-2 gap-3">
+            <InfoCard title="لي (عند العملاء)" value={formatCurrency(summary.owedToMe)} type="success" icon="📉" darkMode={darkMode} />
+            <InfoCard title="علي (للموردين)" value={formatCurrency(summary.iOwe)} type="danger" icon="📈" darkMode={darkMode} />
+        </div>
+    </div>
+);
 
 const HistoryScreen = ({ transactions, darkMode, onEditTransaction, onDeleteTransaction }) => {
     const [search, setSearch] = useState('');
@@ -161,13 +197,11 @@ const HistoryScreen = ({ transactions, darkMode, onEditTransaction, onDeleteTran
     const text = darkMode ? 'text-white' : 'text-gray-900';
     const textSub = darkMode ? 'text-gray-400' : 'text-gray-600';
 
-    // فلترة آمنة تمنع الشاشة البيضاء
     const filtered = transactions.filter(t => {
         const s = search.toLowerCase();
         const name = (t.contactName || '').toLowerCase();
-        const desc = (t.description || '').toLowerCase();
         const amt = (t.amount || 0).toString();
-        return name.includes(s) || desc.includes(s) || amt.includes(s);
+        return name.includes(s) || amt.includes(s);
     });
 
     return (
@@ -176,51 +210,30 @@ const HistoryScreen = ({ transactions, darkMode, onEditTransaction, onDeleteTran
                 <h2 className={`font-bold text-lg ${text}`}>سجل المعاملات</h2>
                 <span className="text-xs text-blue-500 bg-blue-50 px-2 py-1 rounded-full">{filtered.length} عملية</span>
             </div>
-            
-            <SearchBar value={search} onChange={setSearch} placeholder="ابحث باسم العميل، المبلغ..." darkMode={darkMode} />
-
-            {filtered.length === 0 ? (
-                <div className={`text-center py-12 rounded-2xl border border-dashed ${darkMode ? 'border-gray-700' : 'border-gray-300'}`}>
-                    <p className="text-4xl mb-2">📅</p>
-                    <p className={textSub}>لا توجد معاملات</p>
-                </div>
-            ) : (
-                <div className="space-y-3">
-                    {filtered.map(t => (
-                        <div key={t.id} className={`${bg} p-3 rounded-xl border shadow-sm relative group`}>
-                            <div onClick={() => onEditTransaction(t)} className="cursor-pointer">
-                                <div className="flex items-center gap-2 justify-between mb-1">
-                                    <div className="flex items-center gap-2">
-                                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md ${
-                                            t.type === 'Sale' ? 'bg-green-100 text-green-700' : 
-                                            t.type === 'Purchase' ? 'bg-orange-100 text-orange-700' : 
-                                            t.type === 'Expense' ? 'bg-red-100 text-red-700' : 
-                                            t.type === 'Settlement' ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'
-                                        }`}>
-                                            {t.type === 'Sale' ? 'بيع' : t.type === 'Purchase' ? 'شراء' : t.type === 'Expense' ? 'مصروف' : t.type === 'Settlement' ? 'سداد' : 'رأس مال'}
-                                        </span>
-                                        <span className={`text-xs ${textSub}`}>{formatDate(t.date)}</span>
-                                    </div>
-                                    <span className="text-[10px] text-blue-500 border border-blue-200 px-1 rounded">✎</span>
+            <SearchBar value={search} onChange={setSearch} placeholder="ابحث..." darkMode={darkMode} />
+            <div className="space-y-3">
+                {filtered.map(t => (
+                    <div key={t.id} className={`${bg} p-3 rounded-xl border shadow-sm relative group`}>
+                        <div onClick={() => onEditTransaction(t)} className="cursor-pointer">
+                            <div className="flex items-center gap-2 justify-between mb-1">
+                                <div className="flex items-center gap-2">
+                                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md ${t.type === 'Sale' ? 'bg-green-100 text-green-700' : t.type === 'Purchase' ? 'bg-orange-100 text-orange-700' : t.type === 'Expense' ? 'bg-red-100 text-red-700' : 'bg-blue-100 text-blue-700'}`}>
+                                        {t.type === 'Sale' ? 'بيع' : t.type === 'Purchase' ? 'شراء' : t.type === 'Expense' ? 'مصروف' : t.type === 'Settlement' ? 'سداد' : 'رأس مال'}
+                                    </span>
+                                    <span className={`text-xs ${textSub}`}>{formatDate(t.date)}</span>
                                 </div>
-                                <p className={`text-sm font-medium ${text}`}>
-                                    {t.contactName ? `${t.contactName}` : t.description || 'بدون وصف'}
-                                </p>
-                                <div className="flex justify-between items-end mt-1">
-                                    <p className={`font-bold ${text}`}>{formatCurrency(t.amount)}</p>
-                                    {t.creditAmount > 0 && <p className="text-[10px] text-red-500 font-bold">متبقي: {formatCurrency(t.creditAmount)}</p>}
-                                </div>
+                                <span className="text-[10px] text-blue-500 px-1">✎</span>
                             </div>
-                            <button 
-                                onClick={(e) => { e.stopPropagation(); onDeleteTransaction(t); }}
-                                className="absolute top-2 left-2 p-2 bg-red-50 text-red-500 rounded-full shadow-sm opacity-0 group-hover:opacity-100 transition-opacity z-10"
-                            >
-                                🗑️
-                            </button>
+                            <p className={`text-sm font-medium ${text}`}>{t.contactName || t.description}</p>
+                            <div className="flex justify-between items-end mt-1">
+                                <p className={`font-bold ${text}`}>{formatCurrency(t.amount)}</p>
+                                {t.creditAmount > 0 && <p className="text-[10px] text-red-500 font-bold">متبقي: {formatCurrency(t.creditAmount)}</p>}
+                            </div>
                         </div>
-                    ))}
-                </div>
-            )}
+                        <button onClick={(e) => { e.stopPropagation(); onDeleteTransaction(t); }} className="absolute top-2 left-2 p-2 text-red-500 opacity-50 hover:opacity-100 z-10">🗑️</button>
+                    </div>
+                ))}
+            </div>
         </div>
     );
 };
@@ -230,22 +243,13 @@ const SettingsScreen = ({ user, onLogout, darkMode, toggleDarkMode }) => {
     const textMain = darkMode ? 'text-white' : 'text-gray-800';
     return (
         <div className="space-y-5 animate-in fade-in">
-            <div className={`${cardClass} p-6 rounded-3xl shadow-sm border flex flex-col items-center text-center relative overflow-hidden`}>
-                <div className="absolute top-0 w-full h-20 bg-gradient-to-r from-blue-500 to-blue-600"></div>
-                <div className={`w-20 h-20 p-1 rounded-full shadow-lg z-10 mt-4 mb-3 ${darkMode ? 'bg-gray-800' : 'bg-white'}`}>
-                    <img src={user.photoURL || "https://via.placeholder.com/150"} alt="Profile" className="w-full h-full rounded-full object-cover" />
-                </div>
+            <div className={`${cardClass} p-6 rounded-3xl shadow-sm border flex flex-col items-center`}>
                 <h2 className={`font-bold text-lg ${textMain}`}>{user.displayName}</h2>
-                <p className="text-xs text-gray-500 mb-4">{user.email}</p>
-                <MobileButton onClick={onLogout} color="bg-red-50 text-red-600" outline full={false} small>تسجيل الخروج</MobileButton>
+                <MobileButton onClick={onLogout} color="bg-red-50 text-red-600" outline full={false} small>خروج</MobileButton>
             </div>
-            <div className={`${cardClass} rounded-2xl border shadow-sm overflow-hidden`}>
-                <div onClick={toggleDarkMode} className={`p-4 border-b flex justify-between items-center cursor-pointer ${darkMode ? 'border-gray-700' : 'border-gray-50'}`}>
-                    <span className={`text-sm font-bold ${textMain}`}>الوضع الليلي 🌙</span>
-                    <div className={`w-12 h-6 rounded-full relative transition-colors duration-300 ${darkMode ? 'bg-blue-600' : 'bg-gray-300'}`}>
-                        <div className={`w-4 h-4 bg-white rounded-full absolute top-1 transition-all duration-300 ${darkMode ? 'right-7' : 'right-1'}`}></div>
-                    </div>
-                </div>
+            <div className={`${cardClass} rounded-2xl border shadow-sm p-4 flex justify-between cursor-pointer`} onClick={toggleDarkMode}>
+                <span className={`text-sm font-bold ${textMain}`}>الوضع الليلي</span>
+                <div className={`w-10 h-5 rounded-full relative ${darkMode ? 'bg-blue-600' : 'bg-gray-300'}`}><div className={`w-3 h-3 bg-white rounded-full absolute top-1 ${darkMode ? 'right-6' : 'right-1'}`}></div></div>
             </div>
         </div>
     );
@@ -255,19 +259,16 @@ const ContactDetailsScreen = ({ contact, transactions, onBack, onAddTransaction,
     const contactTransactions = useMemo(() => transactions.filter(t => t.contactId === contact.id), [transactions, contact]);
     const bg = darkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-100';
     const text = darkMode ? 'text-gray-200' : 'text-gray-800';
-
     return (
         <div className="space-y-4 animate-in slide-in-from-bottom-4">
             <div className={`flex items-center gap-3 pb-2 border-b ${darkMode ? 'border-gray-700' : 'border-gray-100'}`}>
-                <button onClick={onBack} className={`p-2 rounded-full text-xl ${darkMode ? 'bg-gray-700 text-white' : 'bg-gray-100'}`}>➜</button>
+                <button onClick={onBack} className="p-2 rounded-full text-xl">➜</button>
                 <h2 className={`text-xl font-bold ${text}`}>{contact.name}</h2>
             </div>
             <div className={`p-6 rounded-3xl text-white shadow-lg ${contact.balance > 0 ? 'bg-green-600' : contact.balance < 0 ? 'bg-red-600' : 'bg-gray-500'}`}>
-                <p className="text-white/80 text-sm mb-1">الرصيد المستحق</p>
-                <div className="flex justify-between items-end">
-                    <h3 className="text-4xl font-bold">{formatCurrency(Math.abs(contact.balance))}</h3>
-                    <span className="bg-white/20 px-3 py-1 rounded-lg text-sm">{contact.balance > 0 ? 'له' : contact.balance < 0 ? 'عليه' : 'خالص'}</span>
-                </div>
+                <p className="text-white/80 text-sm mb-1">الرصيد</p>
+                <h3 className="text-4xl font-bold">{formatCurrency(Math.abs(contact.balance))}</h3>
+                <span className="text-xs">{contact.balance > 0 ? 'له (دائن)' : contact.balance < 0 ? 'عليه (مدين)' : 'خالص'}</span>
             </div>
             <div className="space-y-3">
                 {contactTransactions.map(t => (
@@ -280,7 +281,7 @@ const ContactDetailsScreen = ({ contact, transactions, onBack, onAddTransaction,
                     </div>
                 ))}
             </div>
-            <div className="pt-4 pb-8"><MobileButton onClick={() => onAddTransaction(contact.id)}>+ تسجيل عملية</MobileButton></div>
+            <div className="pt-4 pb-8"><MobileButton onClick={() => onAddTransaction(contact.id)}>+ عملية جديدة</MobileButton></div>
         </div>
     );
 };
@@ -289,41 +290,29 @@ const ContactsManagerScreen = ({ contacts, userId, onSelectContact, darkMode }) 
     const [activeTab, setActiveTab] = useState('Customer');
     const [showAddForm, setShowAddForm] = useState(false);
     const [newName, setNewName] = useState('');
-    const [newPhone, setNewPhone] = useState('');
     const bg = darkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-100';
     const text = darkMode ? 'text-white' : 'text-gray-900';
 
     const handleAdd = async (e) => {
         e.preventDefault();
-        if (!newName.trim()) return;
-        try { await addDoc(collection(db, 'contacts'), { userId, name: newName, phone: newPhone, type: activeTab, balance: 0, createdAt: new Date().toISOString() }); setNewName(''); setShowAddForm(false); } catch (e) { alert(e.message); }
+        if (!newName) return;
+        try { await addDoc(collection(db, 'contacts'), { userId, name: newName, type: activeTab, balance: 0 }); setNewName(''); setShowAddForm(false); } catch (e) { alert(e.message); }
     };
 
     const filtered = contacts.filter(c => c.type === activeTab);
-
     return (
         <div className="space-y-4">
             <div className={`flex p-1 rounded-2xl ${darkMode ? 'bg-gray-700' : 'bg-gray-100'}`}>
                 <button onClick={() => setActiveTab('Customer')} className={`flex-1 py-2 rounded-xl font-bold text-sm ${activeTab === 'Customer' ? 'bg-white shadow text-blue-600' : 'text-gray-500'}`}>العملاء</button>
                 <button onClick={() => setActiveTab('Supplier')} className={`flex-1 py-2 rounded-xl font-bold text-sm ${activeTab === 'Supplier' ? 'bg-white shadow text-orange-600' : 'text-gray-500'}`}>الموردين</button>
             </div>
-            {!showAddForm ? (
-                <button onClick={() => setShowAddForm(true)} className={`w-full py-3 border-2 border-dashed rounded-xl font-bold ${darkMode ? 'border-gray-600 text-gray-400' : 'border-gray-300 text-gray-500'}`}>+ إضافة جديد</button>
-            ) : (
-                <form onSubmit={handleAdd} className={`${bg} p-4 rounded-xl border space-y-3`}>
-                    <input value={newName} onChange={e => setNewName(e.target.value)} className="w-full p-2 rounded border text-black" placeholder="الاسم" autoFocus />
-                    <input value={newPhone} onChange={e => setNewPhone(e.target.value)} className="w-full p-2 rounded border text-black" placeholder="الهاتف" />
-                    <div className="flex gap-2"><MobileButton onClick={() => setShowAddForm(false)} color="bg-gray-500" full={false}>إلغاء</MobileButton><MobileButton type="submit">حفظ</MobileButton></div>
-                </form>
-            )}
+            {!showAddForm ? <button onClick={() => setShowAddForm(true)} className="w-full py-3 border-2 border-dashed rounded-xl font-bold text-gray-400">+ إضافة</button> : 
+            <form onSubmit={handleAdd} className={`${bg} p-4 rounded-xl border space-y-3`}><input value={newName} onChange={e => setNewName(e.target.value)} className="w-full p-2 rounded border text-black" placeholder="الاسم" /><MobileButton type="submit">حفظ</MobileButton></form>}
             <div className="space-y-2 pb-20">
                 {filtered.map(c => (
-                    <div key={c.id} onClick={() => onSelectContact(c)} className={`${bg} p-4 rounded-2xl border shadow-sm flex justify-between items-center cursor-pointer`}>
-                        <div><p className={`font-bold ${text}`}>{c.name}</p><p className="text-xs text-gray-500">{c.phone}</p></div>
-                        <div className="text-left">
-                            <p className={`font-bold ${c.balance < 0 ? 'text-red-600' : 'text-green-600'}`}>{formatCurrency(Math.abs(c.balance))}</p>
-                            <p className="text-[10px] text-gray-400">{c.balance === 0 ? 'خالص' : c.balance < 0 ? 'عليه' : 'له'}</p>
-                        </div>
+                    <div key={c.id} onClick={() => onSelectContact(c)} className={`${bg} p-4 rounded-2xl border shadow-sm flex justify-between cursor-pointer`}>
+                        <p className={`font-bold ${text}`}>{c.name}</p>
+                        <div className="text-left"><p className={`font-bold ${c.balance < 0 ? 'text-red-600' : 'text-green-600'}`}>{formatCurrency(Math.abs(c.balance))}</p><p className="text-[10px] text-gray-400">{c.balance < 0 ? 'عليه' : 'له'}</p></div>
                     </div>
                 ))}
             </div>
@@ -331,29 +320,55 @@ const ContactsManagerScreen = ({ contacts, userId, onSelectContact, darkMode }) 
     );
 };
 
-const AddTransactionScreen = ({ contacts, inventoryItems, userId, preSelectedContactId, onClose, darkMode, transactionToEdit }) => {
+const InventoryManagement = ({ inventoryItems, darkMode }) => {
+    const bg = darkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-100';
+    const text = darkMode ? 'text-white' : 'text-gray-900';
+    return (
+        <div className="space-y-4 animate-in fade-in">
+            <h2 className={`font-bold text-lg px-1 ${text}`}>المخزون</h2>
+            {inventoryItems.length === 0 ? (
+                 <div className={`text-center py-12 rounded-2xl border border-dashed ${darkMode ? 'border-gray-700' : 'border-gray-300'}`}>
+                    <p className="text-gray-500">لا يوجد أصناف</p>
+                </div>
+            ) : (
+                <div className="space-y-2">
+                    {inventoryItems.map(item => (
+                         <div key={item.id} className={`${bg} p-3 rounded-xl border shadow-sm flex justify-between`}>
+                            <div>
+                                <span className={`${text} font-bold`}>{item.name}</span>
+                                {item.unit && <span className="text-xs text-gray-400 block">({String(item.unit || 'قطعة')})</span>}
+                            </div>
+                            <span className={`font-bold ${item.quantity < 5 ? 'text-red-500' : 'text-green-500'}`}>{item.quantity}</span>
+                         </div>
+                    ))}
+                </div>
+            )}
+        </div>
+    )
+};
+
+const AddTransactionScreen = ({ contacts, inventoryItems, userId, preSelectedContactId, onClose, darkMode, transactionToEdit, notify }) => {
     const defaultDate = transactionToEdit ? new Date(transactionToEdit.date).toISOString().split('T')[0] : new Date().toISOString().split('T')[0];
     const [type, setType] = useState(transactionToEdit?.type || 'Sale');
     const [contactId, setContactId] = useState(transactionToEdit?.contactId || preSelectedContactId || '');
-    const [items, setItems] = useState(transactionToEdit?.items?.map(i => ({ id: i.itemId, name: i.name, qty: i.quantity, price: i.price, subtotal: i.quantity * i.price })) || []);
+    const [items, setItems] = useState(transactionToEdit?.items?.map(i => ({ id: i.itemId, name: i.name, unit: i.unit || 'قطعة', qty: i.quantity, price: i.price, subtotal: i.quantity * i.price })) || []);
     const [paid, setPaid] = useState(transactionToEdit ? transactionToEdit.paidAmount : '');
     const [amount, setAmount] = useState(transactionToEdit ? transactionToEdit.amount : '');
     const [description, setDescription] = useState(transactionToEdit?.description || '');
     const [txnDate, setTxnDate] = useState(defaultDate);
     const [loading, setLoading] = useState(false);
     
-    // Item & Contact helpers
-    const [selItemId, setSelItemId] = useState('');
+    const [itemName, setItemName] = useState('');
     const [qty, setQty] = useState('');
     const [price, setPrice] = useState('');
-    const [isQuickAddItem, setIsQuickAddItem] = useState(false);
-    const [newItemName, setNewItemName] = useState('');
+    const [unit, setUnit] = useState('قطعة');
     const [isQuickAddContact, setIsQuickAddContact] = useState(false);
     const [newContactName, setNewContactName] = useState('');
 
     const activeContacts = contacts.filter(c => {
-        if (type === 'Sale' || type === 'Settlement') return c.type === 'Customer' || c.type === 'Supplier';
+        if (type === 'Sale') return c.type === 'Customer';
         if (type === 'Purchase') return c.type === 'Supplier';
+        if (type === 'Settlement') return true;
         return true;
     });
     const totalAmount = items.reduce((sum, i) => sum + i.subtotal, 0);
@@ -361,11 +376,14 @@ const AddTransactionScreen = ({ contacts, inventoryItems, userId, preSelectedCon
     const bg = darkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200';
 
     const addItem = () => {
-        if ((!selItemId && !isQuickAddItem) || !qty || !price) return;
-        let id = isQuickAddItem ? `NEW_${Date.now()}` : selItemId;
-        let name = isQuickAddItem ? newItemName : inventoryItems.find(i => i.id === selItemId)?.name;
-        setItems([...items, { id, name, qty: Number(qty), price: Number(price), subtotal: safeMath(Number(qty)*Number(price)), isNew: isQuickAddItem }]);
-        setSelItemId(''); setQty(''); setPrice(''); setIsQuickAddItem(false); setNewItemName('');
+        if (!itemName || !qty || !price) return;
+        const existingItem = inventoryItems.find(i => i.name === itemName);
+        let id = existingItem ? existingItem.id : `NEW_${Date.now()}`;
+        let isNew = !existingItem;
+        const finalUnit = existingItem ? (existingItem.unit || unit) : unit;
+
+        setItems([...items, { id, name: itemName, unit: finalUnit, qty: Number(qty), price: Number(price), subtotal: safeMath(Number(qty)*Number(price)), isNew }]);
+        setItemName(''); setQty(''); setPrice(''); setUnit('قطعة');
     };
 
     const handleQuickContact = async () => {
@@ -384,7 +402,6 @@ const AddTransactionScreen = ({ contacts, inventoryItems, userId, preSelectedCon
         setLoading(true);
         try {
             await runTransaction(db, async (t) => {
-                // 1. Revert old if editing
                 if (transactionToEdit) {
                     if (transactionToEdit.items) {
                         for (const i of transactionToEdit.items) {
@@ -398,8 +415,8 @@ const AddTransactionScreen = ({ contacts, inventoryItems, userId, preSelectedCon
                         const cDoc = await t.get(cRef);
                         if(cDoc.exists()) {
                             let rev = 0;
-                            if (transactionToEdit.type === 'Sale') rev = transactionToEdit.creditAmount;
-                            if (transactionToEdit.type === 'Purchase') rev = -transactionToEdit.creditAmount;
+                            if (transactionToEdit.type === 'Sale') rev = -transactionToEdit.creditAmount;
+                            if (transactionToEdit.type === 'Purchase') rev = transactionToEdit.creditAmount;
                             if (transactionToEdit.type === 'Settlement') {
                                 const isCust = contacts.find(c => c.id === transactionToEdit.contactId)?.type === 'Customer';
                                 rev = isCust ? -transactionToEdit.amount : transactionToEdit.amount;
@@ -410,7 +427,6 @@ const AddTransactionScreen = ({ contacts, inventoryItems, userId, preSelectedCon
                     t.delete(doc(db, 'transactions', transactionToEdit.id));
                 }
 
-                // 2. Create new
                 const finalAmt = (type === 'Sale' || type === 'Purchase') ? safeMath(totalAmount) : safeMath(Number(amount));
                 const paidAmt = (type === 'Sale' || type === 'Purchase') ? safeMath(Number(paid) || 0) : finalAmt;
                 const cred = safeMath(finalAmt - paidAmt);
@@ -420,20 +436,17 @@ const AddTransactionScreen = ({ contacts, inventoryItems, userId, preSelectedCon
                 t.set(ref, {
                     userId, type, contactId: contactId || null, contactName, amount: finalAmt, paidAmount: paidAmt, creditAmount: cred,
                     date: new Date(txnDate).toISOString(), description: description || type,
-                    items: (type === 'Sale' || type === 'Purchase') ? items.map(i => ({ itemId: i.id, name: i.name, quantity: i.qty, price: i.price })) : null
+                    items: (type === 'Sale' || type === 'Purchase') ? items.map(i => ({ itemId: i.id, name: i.name, unit: i.unit, quantity: i.qty, price: i.price })) : null
                 });
 
                 if (type === 'Sale' || type === 'Purchase') {
                     for (const i of items) {
-                        let iRef;
                         if (i.isNew) {
                             const newRef = doc(collection(db, 'inventory_items'));
-                            t.set(newRef, { userId, name: i.name, unit: 'قطعة', quantity: type==='Sale' ? -i.qty : i.qty, lastPurchasePrice: i.price, createdAt: new Date().toISOString() });
-                            iRef = newRef;
+                            t.set(newRef, { userId, name: i.name, unit: i.unit, quantity: type==='Sale' ? -i.qty : i.qty, lastPurchasePrice: i.price, createdAt: new Date().toISOString() });
                         } else {
-                            iRef = doc(db, 'inventory_items', i.id);
-                            const d = await t.get(iRef);
-                            t.update(iRef, { quantity: type === 'Sale' ? d.data().quantity - i.qty : d.data().quantity + i.qty });
+                            const d = await t.get(doc(db, 'inventory_items', i.id));
+                            if(d.exists()) t.update(d.ref, { quantity: type === 'Sale' ? d.data().quantity - i.qty : d.data().quantity + i.qty });
                         }
                     }
                 }
@@ -442,8 +455,8 @@ const AddTransactionScreen = ({ contacts, inventoryItems, userId, preSelectedCon
                     const cRef = doc(db, 'contacts', contactId);
                     const cDoc = await t.get(cRef);
                     let change = 0;
-                    if (type === 'Sale') change = -cred; 
-                    if (type === 'Purchase') change = cred;
+                    if (type === 'Sale') change = cred; 
+                    if (type === 'Purchase') change = -cred;
                     if (type === 'Settlement') {
                         const isCust = contacts.find(c => c.id === contactId)?.type === 'Customer';
                         change = isCust ? finalAmt : -finalAmt;
@@ -452,7 +465,8 @@ const AddTransactionScreen = ({ contacts, inventoryItems, userId, preSelectedCon
                 }
             });
             onClose();
-        } catch (e) { alert('Error: ' + e.message); } finally { setLoading(false); }
+            notify('تم الحفظ بنجاح', 'success');
+        } catch (e) { console.error(e); alert('Error: ' + e.message); } finally { setLoading(false); }
     };
 
     return (
@@ -498,17 +512,34 @@ const AddTransactionScreen = ({ contacts, inventoryItems, userId, preSelectedCon
                 <>
                     <div className={`${bg} p-4 rounded-2xl border space-y-3`}>
                         <p className={`text-sm font-bold ${darkMode ? 'text-gray-300' : 'text-gray-700'}`}>الأصناف</p>
+                        
                         <div className="flex gap-2">
-                            {!isQuickAddItem ? (
-                                <select value={selItemId} onChange={e => { setSelItemId(e.target.value); const i = inventoryItems.find(x => x.id === e.target.value); if(i) setPrice(type === 'Sale' ? i.lastPurchasePrice * 1.2 : i.lastPurchasePrice); }} className={`flex-[2] p-3 border rounded-xl text-sm ${inputBg}`}>
-                                    <option value="">اختر الصنف...</option>
-                                    {inventoryItems.map(i => <option key={i.id} value={i.id}>{i.name} ({i.quantity})</option>)}
-                                </select>
-                            ) : (
-                                <input value={newItemName} onChange={e => setNewItemName(e.target.value)} placeholder="اسم الصنف" className={`flex-[2] p-3 border rounded-xl text-sm ${inputBg}`} autoFocus />
-                            )}
-                            <button onClick={() => setIsQuickAddItem(!isQuickAddItem)} className={`px-3 rounded-xl font-bold border ${isQuickAddItem ? 'bg-red-50 text-red-500' : 'bg-gray-50 text-gray-500'}`}>{isQuickAddItem ? 'إلغاء' : '+'}</button>
+                            <input 
+                                list="items-list"
+                                value={itemName} 
+                                onChange={e => { 
+                                    const val = e.target.value;
+                                    setItemName(val);
+                                    const exist = inventoryItems.find(i => i.name === val);
+                                    if (exist) {
+                                         setPrice(type==='Sale'? exist.lastPurchasePrice*1.2 : exist.lastPurchasePrice);
+                                         setUnit(exist.unit || 'قطعة');
+                                    }
+                                }} 
+                                placeholder="اسم الصنف" 
+                                className={`flex-[2] p-3 border rounded-xl text-sm ${inputBg}`} 
+                            />
+                            <datalist id="items-list">{inventoryItems.map(i => <option key={i.id} value={i.name} />)}</datalist>
+                            
+                            <input 
+                                type="text" 
+                                value={unit} 
+                                onChange={e => setUnit(e.target.value)} 
+                                placeholder="وحدة" 
+                                className={`flex-1 p-3 border rounded-xl text-sm text-center ${inputBg}`} 
+                            />
                         </div>
+
                         <div className="flex gap-2">
                             <input type="number" value={qty} onChange={e => setQty(e.target.value)} placeholder="العدد" className={`flex-1 p-3 border rounded-xl text-center ${inputBg}`} />
                             <input type="number" value={price} onChange={e => setPrice(e.target.value)} placeholder="السعر" className={`flex-[2] p-3 border rounded-xl text-center ${inputBg}`} />
@@ -517,16 +548,20 @@ const AddTransactionScreen = ({ contacts, inventoryItems, userId, preSelectedCon
                     </div>
                     {items.map((i, idx) => (
                         <div key={idx} className={`flex justify-between p-3 border-b ${darkMode ? 'border-gray-700' : 'border-gray-100'}`}>
-                            <span className={darkMode ? 'text-white' : 'text-gray-900'}>{i.name} ({i.qty}x{i.price})</span>
+                            <span className={darkMode ? 'text-white' : 'text-gray-900'}>{i.name} <span className="text-xs text-gray-500">({i.qty} {i.unit} × {i.price})</span> {i.isNew && <span className="text-xs text-green-500">(جديد)</span>}</span>
                             <div className="flex gap-3">
                                 <span className="font-bold text-gray-500">{formatCurrency(i.subtotal)}</span>
                                 <button onClick={() => setItems(items.filter((_, x) => x !== idx))} className="text-red-500 font-bold">x</button>
                             </div>
                         </div>
                     ))}
-                    <div className={`p-4 rounded-xl border ${bg}`}>
+                    <div className={`p-4 rounded-xl border ${bg} space-y-3`}>
                         <div className="flex justify-between font-bold mb-2 text-lg"><span className="text-gray-500">الإجمالي:</span><span className="text-blue-600">{formatCurrency(totalAmount)}</span></div>
                         <div className="flex items-center gap-2"><span className="text-sm text-gray-500">المدفوع:</span><input type="number" value={paid} onChange={e => setPaid(e.target.value)} className="flex-1 p-2 border-b outline-none bg-transparent font-bold text-green-600" placeholder="0" /></div>
+                        <div className="flex justify-between text-sm pt-2 border-t border-dashed">
+                            <span className="text-gray-500">متبقي (آجل):</span>
+                            <span className="font-bold text-red-600">{formatCurrency(safeMath(totalAmount - (Number(paid)||0)))}</span>
+                        </div>
                     </div>
                 </>
             ) : (
@@ -545,59 +580,6 @@ const AddTransactionScreen = ({ contacts, inventoryItems, userId, preSelectedCon
     );
 };
 
-const InventoryManagement = ({ inventoryItems, darkMode }) => {
-    const bg = darkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-100';
-    const text = darkMode ? 'text-white' : 'text-gray-900';
-    return (
-         <div className="space-y-4 animate-in fade-in">
-            <h2 className={`font-bold text-lg px-1 ${text}`}>المخزون</h2>
-            {inventoryItems.length === 0 ? (
-                 <div className={`text-center py-12 rounded-2xl border border-dashed ${darkMode ? 'border-gray-700' : 'border-gray-300'}`}>
-                    <p className="text-gray-500">لا يوجد أصناف</p>
-                </div>
-            ) : (
-                <div className="space-y-2">
-                    {inventoryItems.map(item => (
-                         <div key={item.id} className={`${bg} p-3 rounded-xl border shadow-sm flex justify-between`}>
-                            <span className={text}>{item.name}</span>
-                            <span className={`font-bold ${item.quantity < 5 ? 'text-red-500' : 'text-green-500'}`}>{item.quantity} {item.unit}</span>
-                         </div>
-                    ))}
-                </div>
-            )}
-        </div>
-    )
-};
-
-const Dashboard = ({ summary, onNavigate, darkMode }) => (
-    <div className="space-y-6 animate-in fade-in">
-        <div className="flex justify-between px-2 items-center">
-            <h2 className={`font-bold text-xl ${darkMode ? 'text-white' : 'text-gray-800'}`}>لوحة التحكم</h2>
-            <span className="text-[10px] bg-blue-50 text-blue-600 px-2 py-1 rounded-lg font-bold border border-blue-100">أ/ خالد إسماعيل</span>
-        </div>
-        <div className="bg-gradient-to-br from-blue-600 to-blue-800 p-6 rounded-3xl text-white shadow-xl relative overflow-hidden">
-            <div className="absolute top-0 right-0 w-40 h-40 bg-white/10 rounded-full -mr-10 -mt-10 blur-2xl"></div>
-            <div className="relative z-10">
-                <p className="text-blue-100 mb-1 text-sm">السيولة النقدية</p>
-                <h2 className="text-5xl font-bold">{formatCurrency(summary.cash)}</h2>
-            </div>
-        </div>
-        <div className={`${darkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-blue-50'} p-4 rounded-2xl border flex justify-between items-center`}>
-            <div><p className="text-xs text-gray-400 mb-1">رأس المال المستثمر</p><p className="text-xl font-bold text-blue-500">{formatCurrency(summary.investedCapital)}</p></div>
-            <div className="text-2xl">💰</div>
-        </div>
-        <div className="grid grid-cols-2 gap-3">
-            <InfoCard title="مبيعات" value={formatCurrency(summary.tSales)} type="info" icon="🛒" darkMode={darkMode} />
-            <InfoCard title="مشتريات" value={formatCurrency(summary.tPurchases)} type="warning" icon="🚚" darkMode={darkMode} />
-            <InfoCard title="مصروفات" value={formatCurrency(summary.tExpenses)} type="danger" icon="💸" darkMode={darkMode} />
-        </div>
-        <div className="grid grid-cols-2 gap-3">
-            <InfoCard title="لي (عند العملاء)" value={formatCurrency(summary.owedToMe)} type="success" icon="📉" darkMode={darkMode} />
-            <InfoCard title="علي (للموردين)" value={formatCurrency(summary.iOwe)} type="danger" icon="📈" darkMode={darkMode} />
-        </div>
-    </div>
-);
-
 const App = () => {
     const [user, setUser] = useState(null);
     const [screen, setScreen] = useState('Dashboard');
@@ -606,9 +588,22 @@ const App = () => {
     const [data, setData] = useState({ contacts: [], transactions: [], inventory: [] });
     const [darkMode, setDarkMode] = useState(false);
     const [notification, setNotification] = useState(null);
+    const [isOffline, setIsOffline] = useState(!navigator.onLine);
 
-    useEffect(() => onAuthStateChanged(auth, u => setUser(u)), []);
+    useEffect(() => { localStorage.setItem('darkMode', darkMode); }, [darkMode]);
+    useEffect(() => {
+        const h = () => setIsOffline(!navigator.onLine);
+        window.addEventListener('online', h); window.addEventListener('offline', h);
+        return () => { window.removeEventListener('online', h); window.removeEventListener('offline', h); };
+    }, []);
     
+    const notify = (message, type = 'success') => setNotification({ message, type });
+
+    useEffect(() => {
+        if (!auth) return;
+        return onAuthStateChanged(auth, u => setUser(u));
+    }, []);
+
     useEffect(() => {
         if (!user) return;
         const q = (col) => query(collection(db, col), where('userId', '==', user.uid));
@@ -620,7 +615,7 @@ const App = () => {
 
     const summary = useMemo(() => {
         let owedToMe = 0, iOwe = 0, cash = 0, tSales = 0, tPurchases = 0, tExpenses = 0, investedCapital = 0;
-        data.contacts.forEach(c => { if (c.balance < 0) owedToMe += Math.abs(c.balance); if (c.balance > 0) iOwe += c.balance; });
+        data.contacts.forEach(c => { if (c.balance > 0) owedToMe += c.balance; if (c.balance < 0) iOwe += Math.abs(c.balance); });
         data.transactions.forEach(t => {
             const amt = safeMath(t.amount); const paid = safeMath(t.paidAmount);
             if (t.type === 'Sale') { cash += paid; tSales += amt; }
@@ -628,7 +623,7 @@ const App = () => {
             if (t.type === 'Expense') { cash -= amt; tExpenses += amt; }
             if (t.type === 'Capital') { cash += amt; investedCapital += amt; }
             if (t.type === 'Settlement') {
-                const contact = data.contacts.find(c => c.id === t.contactId);
+                const contact = data.contacts.find(x => x.id === t.contactId);
                 if (contact) { if (contact.type === 'Customer') cash += amt; else cash -= amt; }
             }
         });
@@ -639,30 +634,30 @@ const App = () => {
         if (!window.confirm('حذف نهائي؟')) return;
         try {
             await runTransaction(db, async (tr) => {
+                const readOps = [];
+                if (t.items) t.items.forEach(i => readOps.push(doc(db, 'inventory_items', i.itemId)));
+                if (t.contactId) readOps.push(doc(db, 'contacts', t.contactId));
+                const snaps = await Promise.all(readOps.map(r => tr.get(r)));
+                const invMap = new Map(snaps.filter(s => s.ref.path.includes('inventory')).map(s => [s.id, s]));
+                const contactSnap = snaps.find(s => s.ref.path.includes('contacts'));
+
                 if (t.items) {
-                    for (const i of t.items) {
-                        const ref = doc(db, 'inventory_items', i.itemId);
-                        const d = await tr.get(ref);
-                        if(d.exists()) tr.update(ref, { quantity: t.type === 'Sale' ? d.data().quantity + i.quantity : d.data().quantity - i.quantity });
-                    }
+                    t.items.forEach(i => {
+                        const d = invMap.get(i.itemId);
+                        if(d && d.exists()) tr.update(d.ref, { quantity: t.type==='Sale' ? d.data().quantity + i.quantity : d.data().quantity - i.quantity });
+                    });
                 }
-                if (t.contactId) {
-                    const cRef = doc(db, 'contacts', t.contactId);
-                    const cDoc = await tr.get(cRef);
-                    if(cDoc.exists()) {
-                        let rev = 0;
-                        if (t.type === 'Sale') rev = t.creditAmount;
-                        if (t.type === 'Purchase') rev = -t.creditAmount;
-                        if (t.type === 'Settlement') {
-                            const isCust = data.contacts.find(c => c.id === t.contactId)?.type === 'Customer';
-                            rev = isCust ? -t.amount : t.amount;
-                        }
-                        tr.update(cRef, { balance: (cDoc.data().balance || 0) + rev });
-                    }
+                if (t.contactId && contactSnap && contactSnap.exists()) {
+                    let rev = 0;
+                    if(t.type==='Sale') rev = -t.creditAmount;
+                    if(t.type==='Purchase') rev = t.creditAmount;
+                    if(t.type==='Settlement') { const isCust = data.contacts.find(c=>c.id===t.contactId)?.type==='Customer'; rev = isCust ? t.amount : -t.amount; }
+                    tr.update(contactSnap.ref, { balance: (contactSnap.data().balance||0) + rev });
                 }
                 tr.delete(doc(db, 'transactions', t.id));
             });
-        } catch (e) { alert('خطأ: ' + e.message); }
+            notify('تم الحذف', 'success');
+        } catch(e) { alert('Error'); }
     };
 
     if (!user) return <LoginScreen />;
@@ -671,6 +666,8 @@ const App = () => {
         <div className={`min-h-screen flex justify-center font-sans transition-colors duration-300 ${darkMode ? 'bg-gray-900 text-white' : 'bg-gray-100 text-gray-900'}`} dir="rtl">
             <div className={`w-full max-w-md min-h-screen shadow-2xl relative flex flex-col border-x transition-colors duration-300 ${darkMode ? 'bg-gray-900 border-gray-800' : 'bg-white border-gray-200'}`}>
                 <NotificationToast notification={notification} onClose={() => setNotification(null)} />
+                {isOffline && <div className="bg-red-500 text-white text-center text-xs p-1">وضع عدم الاتصال</div>}
+                
                 {screen !== 'Dashboard' && (
                     <div className={`p-4 sticky top-0 z-20 border-b flex items-center justify-between shadow-sm ${darkMode ? 'bg-gray-900 border-gray-800' : 'bg-white'}`}>
                         <button onClick={() => { if (selectedContact) { setSelectedContact(null); } else { setScreen('Dashboard'); setTransactionToEdit(null); } }} className={`p-2 rounded-full text-xl ${darkMode ? 'text-white hover:bg-gray-800' : 'text-gray-600 hover:bg-gray-100'}`}>➜</button>
@@ -682,7 +679,7 @@ const App = () => {
                     {screen === 'Dashboard' && <Dashboard summary={summary} onNavigate={setScreen} darkMode={darkMode} />}
                     {screen === 'Contacts' && !selectedContact && <ContactsManagerScreen contacts={data.contacts} userId={user.uid} onSelectContact={(c) => setSelectedContact(c)} darkMode={darkMode} />}
                     {screen === 'Contacts' && selectedContact && <ContactDetailsScreen contact={selectedContact} transactions={data.transactions} onBack={() => setSelectedContact(null)} onAddTransaction={() => setScreen('TransactionForm')} darkMode={darkMode} />}
-                    {screen === 'TransactionForm' && <AddTransactionScreen contacts={data.contacts} inventoryItems={data.inventory} userId={user.uid} preSelectedContactId={selectedContact?.id} onClose={() => { setScreen(selectedContact ? 'Contacts' : 'Dashboard'); setTransactionToEdit(null); }} darkMode={darkMode} transactionToEdit={transactionToEdit} />}
+                    {screen === 'TransactionForm' && <AddTransactionScreen contacts={data.contacts} inventoryItems={data.inventory} userId={user.uid} preSelectedContactId={selectedContact?.id} onClose={() => { setScreen(selectedContact ? 'Contacts' : 'Dashboard'); setTransactionToEdit(null); }} darkMode={darkMode} transactionToEdit={transactionToEdit} notify={notify} />}
                     {screen === 'Settings' && <SettingsScreen user={user} onLogout={() => signOut(auth)} darkMode={darkMode} toggleDarkMode={() => setDarkMode(!darkMode)} />}
                     {screen === 'History' && <HistoryScreen transactions={data.transactions} darkMode={darkMode} onEditTransaction={(t) => { setTransactionToEdit(t); setScreen('TransactionForm'); }} onDeleteTransaction={handleDelete} />}
                     {screen === 'Inventory' && <InventoryManagement inventoryItems={data.inventory} darkMode={darkMode} />}
