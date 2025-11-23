@@ -6,26 +6,32 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
     <title>مديرك المالي</title>
     
-    <!-- 1. استدعاء مكتبة التصميم (السر في السطر ده) -->
+    <!-- استدعاء مكتبة التصميم Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
     
-    <!-- 2. استدعاء الخط العربي -->
-    <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;700;900&display=swap" rel="stylesheet">
+    <!-- استدعاء الخط العربي Cairo -->
+    <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;900&display=swap" rel="stylesheet">
     
     <style>
+      /* إجبار المتصفح على استخدام الخط والتنسيق */
       body {
         font-family: 'Cairo', sans-serif;
-        background-color: #f3f4f6; /* لون رصاصي فاتح للخلفية */
+        background-color: #f3f4f6;
         margin: 0;
         padding: 0;
       }
-      /* إخفاء شريط التمرير */
+      /* تنسيق شريط التمرير */
       .hide-scrollbar::-webkit-scrollbar {
         display: none;
       }
       .hide-scrollbar {
         -ms-overflow-style: none;
         scrollbar-width: none;
+      }
+      
+      /* تحسينات للأزرار واللمس على الموبايل */
+      button, input, select {
+        touch-action: manipulation;
       }
     </style>
   </head>
